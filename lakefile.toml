@@ -1,0 +1,21 @@
+name = "spec"
+version = "0.1.0"
+defaultTargets = ["Spec"]
+
+[[lean_lib]]
+name = "Spec"
+glob = "Spec.+"
+
+# [[require]]
+# name = "batteries"
+# scope = "leanprover-community"
+# rev = "main"
+
+[[require]]
+name = "Colorized"
+scope = "algebraic-dev"
+
+[[require]]
+name = "aesop"
+scope = "leanprover-community"
+rev = "master"
