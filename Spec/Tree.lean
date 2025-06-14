@@ -1,0 +1,173 @@
+namespace Spec
+
+def Name := String
+deriving Repr, BEq, Ord, Inhabited, Hashable
+
+def Name.toString (n : Name) : String := n
+
+def NumberOfTests := Nat
+deriving Repr, BEq, Ord, Inhabited, Hashable
+
+abbrev ActionWith (m : Type → Type) a := a → m Unit
+abbrev ExampleFn (m : Type → Type) a := (ActionWith m a → m Unit) → m Unit
+
+instance : Repr (ExampleFn (m : Type → Type) (a : Type)) where
+  reprPrec _ _ := "<function>"
+instance : BEq (ExampleFn (m : Type → Type) (a : Type)) where
+  beq _ _ := true
+
+structure PathItem where
+  index : Nat
+  name : Option Name
+  deriving Repr, BEq, Ord, Inhabited, Hashable
+
+abbrev Path := Array PathItem
+abbrev TestLocator := Path × Name
+
+structure Item (m : Type → Type) (a : Type) where
+  isFocused : Bool
+  isParallelizable : Option Bool
+  example_ : ExampleFn m a
+  deriving Repr, BEq
+
+inductive Tree (n c a : Type)
+  | node : (n ⊕ c) → Array (Tree n c a) → Tree n c a
+  | leaf : n → Option a → Tree n c a
+  deriving Repr, BEq, Inhabited --, DecidableEq
+
+instance {n c a} [Repr n] [Repr c] [Repr a] : ToString (Tree n c a) where
+  toString tree := repr tree |>.pretty
+
+#guard toString (Tree.node
+  (Sum.inl "Root")
+  #[
+  Tree.leaf "Test1" (some "✓"),
+  Tree.node (Sum.inr "Group") #[Tree.leaf "Test2" none]
+]) = r#"Spec.Tree.node
+  (Sum.inl "Root")
+  #[Spec.Tree.leaf "Test1" (some "✓"), Spec.Tree.node (Sum.inr "Group") #[Spec.Tree.leaf "Test2" none]]"#
+
+namespace Tree
+
+def mapTreeAnnotations (f : n → m) : Tree n c a → Tree m c a
+  | node ec cs => node (ec.map f id) (cs.map (mapTreeAnnotations f))
+  | leaf n a   => leaf (f n) a
+
+def bimapTreeWithPaths {n a b c d}
+    (g : Array n → a → b)
+    (f : Array n → c → d)
+    : Tree n a c → Tree n b d :=
+  let rec go (path : Array n) : Tree n a c → Tree n b d
+    | node e children =>
+      let path' := e.elim (fun n => path.push n) (fun _ => path)
+      let e' := e.map id (g path')
+      node e' (children.map (go path'))
+    | leaf n x =>
+      leaf n (x.map (f (path.push n)))
+  go #[]
+
+def countTests {n c a} : Array (Tree n c a) → Nat
+  | trees =>
+    trees.foldl (fun acc t =>
+      let rec go : Tree n c a → Nat
+        | node _ cs => cs.foldl (fun s t => s + go t) 0
+        | leaf _ _  => acc + 1
+      acc + go t) 0
+
+def Tree.sizeOf {n c m a} : Tree n c (Item m a) → Nat
+  | Tree.leaf _ _ => 1
+  | Tree.node _ cs => 1 + cs.foldl (fun acc t => acc + sizeOf t) 0
+
+partial def isAllParallelizable {n c m a} : Tree n c (Item m a) → Bool
+  | node _ cs => cs.all isAllParallelizable
+  | leaf _ x => x.map (·.isParallelizable == some true) |>.getD true
+-- termination_by t => Tree.sizeOf t
+-- decreasing_by
+--   simp only [Tree.sizeOf]
+--   rename_i a_1 a_2
+--   simp_all only [gt_iff_lt]
+--   cases a_1 with
+--   | inl val =>
+--     -- We need a_2 ∈ cs (the children array)
+--     have h_mem : a_2 ∈ cs.toList := sorry -- a_2 is one of the children in recursive call
+--     have sum_all := List.foldl_sum_nonneg (List.map Tree.sizeOf cs.toList)
+--     -- Tree.sizeOf a_2 ≤ sum of Tree.sizeOf over cs
+--     have h_le : Tree.sizeOf a_2 ≤ List.foldl (· + ·) 0 (List.map Tree.sizeOf cs.toList) :=
+--       List.le_of_mem_foldl_sum h_mem (List.map Tree.sizeOf cs.toList)
+--     -- So
+--     calc
+--       Tree.sizeOf a_2 < 1 + List.foldl (· + ·) 0 (List.map Tree.sizeOf cs.toList) := by
+--         apply Nat.lt_add_of_pos_right
+--         exact Nat.zero_lt_one
+--   | inr val_1 => aesop?
+
+def filterTree {n c a} (p : n → Option a → Bool) : Tree n c a → Option (Tree n c a)
+  | node e children =>
+    let children' := children.filterMap (filterTree p)
+    if children'.isEmpty then none else some (node e children')
+  | leaf n x =>
+    if p n x then some (leaf n x) else none
+
+def filterTrees {n c a} (p : n → Option a → Bool) (xs : Array (Tree n c a)) : Array (Tree n c a) :=
+  xs.filterMap (filterTree p)
+
+def discardUnfocused {n c m a} : Array (Tree n c (Item m a)) → Array (Tree n c (Item m a)) :=
+  let isFocused (_ : n) (x : Option (Item m a)) :=
+    match x with
+    | some item => item.isFocused
+    | none => false
+  fun trees =>
+    let focused := filterTrees isFocused trees
+    if focused.isEmpty then trees else focused
+
+partial def annotateWithPathsGo (path : Array PathItem) (index : Nat) : Tree Name c a → Tree (Name × Path) c a
+    | node e cs =>
+      let name := e.elim some (fun _ => none)
+      let path' := path.push ⟨index, name⟩
+      node (e.map (·, path) id) (cs.mapIdx (annotateWithPathsGo path'))
+    | leaf n x =>
+      leaf (n, path) x
+
+  -- termination_by t => t
+  -- decreasing_by
+  --   simp [Tree.sizeOf]
+  --   cases e with
+  --   | inl val =>
+  --     simp_all only [Sum.inl.sizeOf_spec]
+  --     aesop?
+  --   | inr val_1 =>
+  --     simp_all only [Sum.inr.sizeOf_spec, sizeOf_default, Nat.add_zero, Nat.reduceAdd]
+  --     grind
+
+def annotateWithPaths {c a}
+    (trees : Array (Tree Name c a))
+    : Array (Tree (Name × Path) c a) :=
+  trees.mapIdx (annotateWithPathsGo #[])
+
+def parentSuiteName (path : Path) : Array Name :=
+  path.filterMap (·.name)
+
+def Array.popLast? (xs : Array α) : Option (Array α × α) :=
+  if h : xs.size > 0 then
+    let last := xs.back
+    let init := xs.pop
+    some (init, last)
+  else
+    none
+
+def parentSuite (path : Path) : Option TestLocator :=
+  match Array.popLast? path with
+  | some (init, last) =>
+    last.name.map fun name => (init, name)
+  | none => none
+
+def modifyAroundAction {m a b}
+    (f : (a → m Unit) → b → m Unit)
+    (item : Item m a) : Item m b :=
+  { isFocused := item.isFocused
+  , isParallelizable := item.isParallelizable
+  , example_ := fun around => item.example_ (around ∘ f)
+  }
+
+end Tree
+end Spec

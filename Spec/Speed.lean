@@ -1,12 +1,11 @@
 import Spec.Style
-
 namespace Spec
 
 inductive Speed where
   | fast
   | medium
   | slow
-  deriving Repr, DecidableEq, Ord
+  deriving Repr, DecidableEq, Ord, Hashable
 
 namespace Speed
 
@@ -18,17 +17,16 @@ def speedOf (threshold : Float) (ms : Float) : Speed :=
   else
     .fast
 
-def toStyle : Speed → List Modifier
-  | .fast   => dim
-  | .medium => yellow
-  | .slow   => red
+def toStyle : Speed → List StyleModifier
+  | .fast   => Style.dim
+  | .medium => Style.yellow
+  | .slow   => Style.red
 
 def toString : Speed -> String
-  | .fast => "Fast"
-  | .medium => "Medium"
-  | .slow => "Slow"
+  | .fast => "Speed.fast"
+  | .medium => "Speed.medium"
+  | .slow => "Speed.slow"
 
 end Speed
 
-instance : ToString Speed where
-  toString := Speed.toString
+instance : ToString Speed := ⟨Speed.toString⟩

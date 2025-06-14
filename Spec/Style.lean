@@ -10,6 +10,8 @@ inductive StyleModifier
   | bg (c : Color)
   | style (s : Style)
 
+namespace Style
+
 /-- Apply a list of `Modifier`s to a string. -/
 @[inline] def styled (mods : List StyleModifier) (str : String) : String :=
   let apply : StyleModifier → String → String
