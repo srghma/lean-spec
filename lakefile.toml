@@ -12,8 +12,18 @@ glob = "Spec.+"
 # rev = "main"
 
 [[require]]
+name = "mathlib"
+scope = "leanprover-community"
+
+[[require]]
 name = "Colorized"
 scope = "algebraic-dev"
+
+[[require]]
+name = "Pipes"
+path = "../lean-pipes"
+# scope = "srhhma"
+# git = "https://github.com/srhhma/lean-pipes"
 
 [[require]]
 name = "aesop"

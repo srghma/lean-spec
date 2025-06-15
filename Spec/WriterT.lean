@@ -1,0 +1,20 @@
+-- Minimal WriterT using StateT with Monoid
+@[expose] def WriterT (w : Type u) (m : Type u → Type v) (α : Type u) : Type (max u v) :=
+  w → m (α × w)
+
+-- abbrev WriterT w m α := StateT w m α
+
+namespace WriterT
+
+-- Change the accumulator and base monad types in a WriterT monad action.
+def mapWriterT [Monoid w1]
+  (f : m1 (a × w1) → m2 (b × w2)) (x : WriterT w1 m1 a) : WriterT w2 m2 b :=
+  fun (_ : w2) => f (x Monoid.empty)
+
+def tell [Monoid w] [Monad m] (x : w) : WriterT w m Unit :=
+  modify (Monoid.append · x)
+
+def exec [Monad m] [monoid : Monoid w] (ma : WriterT w m α) (init := monoid.empty) : m w :=
+  Prod.snd <$> ma init
+
+end WriterT

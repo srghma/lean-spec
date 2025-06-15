@@ -36,12 +36,8 @@ partial def printFailures (results : Array (Tree (Name × Path) Empty Result)) :
   let mut failureCount := 0
   for tree in results do
     match tree with
-    | Tree.node (Sum.inl _) children =>
-      printFailures children
-
-    | Tree.node (Sum.inr v) _ =>
-      nomatch v
-
+    | Tree.node (Sum.inr v) _ => nomatch v
+    | Tree.node (Sum.inl _) children => printFailures children
     | Tree.leaf (name, path) optRes =>
       match optRes with
       | some (.failure err) => do
@@ -61,7 +57,6 @@ def defaultSummary (results : Array (Tree (Name × Path) Empty Result)) : Report
   if summary.failed > 0 then tellLn $ Style.styled Style.red s!"{summary.failed} failed"
   tellLn ""
   printFailures results
-
 
 -- Check if a running item is finished
 def RunningItem.isFinished : RunningItem → Bool
@@ -91,7 +86,7 @@ def modifyRunningItems (config : ReporterConfig s) (f : Std.HashMap TestLocator 
         config.printFinishedItem loc item
 
 -- Default update function
-def defaultUpdate {s : Type} (config : ReporterConfig s) (event : Event) :
+def defaultUpdate (config : ReporterConfig s) (event : Event) :
     StateT s (WriterT String IO) Unit := do
   -- Base update logic
   match event with
@@ -127,8 +122,8 @@ def defaultUpdate {s : Type} (config : ReporterConfig s) (event : Event) :
 abbrev Reporter := Array Event → IO String
 
 -- Default reporter constructor
-def defaultReporter {s : Type} (initialState : s)
-    (onEvent : Event → StateT s (WriterT String IO) Unit) : Reporter :=
+def defaultReporter (initialState : s)
+    (onEvent : Event → StateT s (WriterT String Id) Unit) : Reporter :=
   fun events => do
     let (_, output) ← events.foldlM fun (state, writerState) event => do
         let x ← (onEvent event).run state |>.run writerState
