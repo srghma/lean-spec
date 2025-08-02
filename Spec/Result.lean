@@ -7,7 +7,7 @@ open Spec
 local instance : Hashable IO.Error where
   hash e := e.toString.hash
 local instance : Hashable Std.Time.Millisecond.Offset where
-  hash e := e.toInt
+  hash e := e.toInt.toNat.toUInt64
 
 local instance : Repr Std.Time.Millisecond.Offset where
   reprPrec e _ := toString e

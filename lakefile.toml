@@ -6,10 +6,10 @@ defaultTargets = ["Spec"]
 name = "Spec"
 glob = "Spec.+"
 
-# [[require]]
-# name = "batteries"
-# scope = "leanprover-community"
-# rev = "main"
+[[require]]
+name = "batteries"
+scope = "leanprover-community"
+rev = "main"
 
 [[require]]
 name = "mathlib"
@@ -21,11 +21,11 @@ scope = "algebraic-dev"
 
 [[require]]
 name = "Pipes"
-path = "../lean-pipes"
+path = "../lean-pipes/pipes"
 # scope = "srhhma"
 # git = "https://github.com/srhhma/lean-pipes"
 
 [[require]]
 name = "aesop"
 scope = "leanprover-community"
-rev = "master"
+# rev = "master"

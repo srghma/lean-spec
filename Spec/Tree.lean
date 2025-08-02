@@ -30,6 +30,10 @@ structure Item (m : Type → Type) (a : Type) where
   example_ : ExampleFn m a
   deriving Repr, BEq
 
+-- Helper function to set parallelizable flag
+def Item.setParallelizable (value : Bool) (item : Item m a) : Item m a :=
+  { item with isParallelizable := some value }
+
 inductive Tree (n c a : Type)
   | node : (n ⊕ c) → Array (Tree n c a) → Tree n c a
   | leaf : n → Option a → Tree n c a
@@ -161,7 +165,7 @@ def parentSuite (path : Path) : Option TestLocator :=
     last.name.map fun name => (init, name)
   | none => none
 
-def modifyAroundAction {m a b}
+def Item.modifyAroundAction {m a b}
     (f : (a → m Unit) → b → m Unit)
     (item : Item m a) : Item m b :=
   { isFocused := item.isFocused

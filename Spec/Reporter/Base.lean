@@ -71,23 +71,37 @@ structure ReporterConfig (s : Type) where
   printFinishedItem : TestLocator → RunningItem → StateT s (WriterT String IO) Unit
   update : Event → StateT s (WriterT String IO) Unit
 
-def modifyRunningItems (config : ReporterConfig s) (f : Std.HashMap TestLocator RunningItem → Std.HashMap TestLocator RunningItem) :
-      StateT s (WriterT String IO) Unit := do
-    let state ← StateT.get
+-- needed to derive [Monad (WriterT String IO)]
+local instance : EmptyCollection String where
+  emptyCollection := ""
+
+local instance : Append String where
+  append a b := a ++ b
+
+def ReporterConfig.printFinishedItems
+  (self : ReporterConfig s)
+  (items : Std.HashMap TestLocator RunningItem)
+  : StateT s (WriterT String IO) PUnit :=
+  items.forM fun loc item => self.printFinishedItem loc item
+
+def modifyRunningItems
+  (config : ReporterConfig s)
+  (f : Std.HashMap TestLocator RunningItem → Std.HashMap TestLocator RunningItem) :
+  StateT s (WriterT String IO) PUnit := do
+    let state <- StateT.get
     let currentItems := config.getRunningItems state
     let nextItems := f currentItems
-    let allFinished := nextItems.values.all RunningItem.isFinished
+    let allFinished : Bool := nextItems.values.all RunningItem.isFinished
 
     let finalItems := if allFinished then Std.HashMap.emptyWithCapacity else nextItems
-    set $ config.putRunningItems finalItems state
+    StateT.set (config.putRunningItems finalItems state)
 
     if allFinished then
-      for (loc, item) in nextItems.toList do
-        config.printFinishedItem loc item
+      ReporterConfig.printFinishedItems config nextItems
 
 -- Default update function
 def defaultUpdate (config : ReporterConfig s) (event : Event) :
-    StateT s (WriterT String IO) Unit := do
+    StateT s (WriterT String IO) PUnit := do
   -- Base update logic
   match event with
   | Event.suite Execution.sequential _ => pure ()
@@ -121,15 +135,14 @@ def defaultUpdate (config : ReporterConfig s) (event : Event) :
 -- Simplified reporter type - no pipes needed
 abbrev Reporter := Array Event → IO String
 
--- Default reporter constructor
-def defaultReporter (initialState : s)
-    (onEvent : Event → StateT s (WriterT String Id) Unit) : Reporter :=
+def defaultReporter
+  (initialState : s)
+  (onEvent : Event → StateT s (WriterT String Id) Unit)
+  : Reporter :=
   fun events => do
-    let (_, output) ← events.foldlM fun (state, writerState) event => do
-        let x ← (onEvent event).run state |>.run writerState
-        let ((_, newState), log) := x
-        pure (newState, log)
-      (initialState, "")
+    let (_, output) ← events.foldlM (init := (initialState, "")) fun (state, _) event => do
+      let ((_, newState), log) := WriterT.run ((onEvent event).run state)
+      pure (newState, log)
     pure output
 
 end Spec.Reporter.Base

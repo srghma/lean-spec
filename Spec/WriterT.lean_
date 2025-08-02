@@ -1,4 +1,7 @@
 -- Minimal WriterT using StateT with Monoid
+
+import Mathlib.Algebra.Group.Defs
+
 @[expose] def WriterT (w : Type u) (m : Type u → Type v) (α : Type u) : Type (max u v) :=
   w → m (α × w)
 
