@@ -5,6 +5,7 @@ import Spec.Style
 import Spec.Console
 import Spec.Summary
 import Std.Data.HashMap
+import Pipes
 
 namespace Spec.Reporter.Base
 
@@ -131,9 +132,6 @@ def defaultUpdate (config : ReporterConfig s) (event : Event) :
 
   -- Call custom update
   config.update event
-
--- Simplified reporter type - no pipes needed
-abbrev Reporter := Array Event → IO String
 
 def defaultReporter
   (initialState : s)
