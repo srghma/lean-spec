@@ -61,7 +61,8 @@ def hoistSpec [Functor m] [Monad m'] (onM : ∀ {α}, m α → m' α) (f : Compu
       fun i => f (ComputationType.cleanUpWithContext name) (around' i)
     onTest (name : Array String) (item : Item a i) : Item b i :=
       { item with
-        example_ := fun g => g (f (ComputationType.testWithName name) ∘ item.example_ ∘ (fun q f => f q)) }
+        -- example_ := fun g => g (f (ComputationType.testWithName name) ∘ item.example_ ∘ (fun q f => f q)) }
+        example_ := fun g => f (ComputationType.testWithName name) (item.example_ g) }
 
 def anyFocused (t : SpecTree g i) : Bool :=
   match t with
@@ -98,15 +99,18 @@ def collect [Monad m] [Functor m] (spec : SpecT g i m a) : m (Array (SpecTree g 
 
 -- Example class for different test types
 class Example (t : Type) (arg : Type) (m : Type → Type) where
-  evaluateExample : t → (ActionWith m arg → m Unit) → m Unit
+  -- evaluateExample : t → (ActionWith m arg → m Unit) → m Unit
+  evaluateExample : t → ExampleFn m arg
 
 -- Instance for function types
 instance [Monad m] : Example (arg → m Unit) arg m where
-  evaluateExample t around' := around' t
+  -- evaluateExample t around' := around' t
+  evaluateExample t := t
 
 -- Instance for unit computations
 instance [Monad m] : Example (m Unit) Unit m where
-  evaluateExample t around' := around' (fun _ => t)
+  -- evaluateExample t around' := around' (fun _ => t)
+  evaluateExample t := fun .unit => t
 
 -- Focus warning (simplified in Lean)
 class FocusWarning where

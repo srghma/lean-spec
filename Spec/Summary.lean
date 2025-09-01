@@ -16,13 +16,13 @@ def Summary.append (s1 s2 : Summary) : Summary :=
     failed := s1.failed + s2.failed,
     pending := s1.pending + s2.pending }
 
-partial def Summary.summarize {n} (trees : Array (Tree n a Result)) : Summary :=
+partial def Summary.summarize (trees : Array (Tree n a Result)) : Summary :=
   trees.foldl
     (fun acc tree =>
       let current :=
         match tree with
         | Tree.leaf _ (some (Result.success _ _)) => { passed := 1 }
-        | Tree.leaf _ (some (Result.failure _)) => { failed := 1 }
+        | Tree.leaf _ (some (Result.failure _ _)) => { failed := 1 }
         | Tree.leaf _ (some Result.failure_timeouted) => { failed := 1 }
         | Tree.leaf _ none => { pending := 1 }
         | Tree.node _ subtrees => summarize subtrees

@@ -9,6 +9,8 @@ import Spec.Timeout
 import Pipes.Concurrent.MergeProducers
 import Std.Time
 
+namespace Spec
+
 -- Type aliases matching the PureScript definitions
 abbrev TestEvents := Producer Spec.Event IO (Array (Spec.Tree Spec.TestLocator PEmpty Spec.Result))
 abbrev Reporter := Pipe Spec.Event Spec.Event IO (Array (Spec.Tree Spec.TestLocator PEmpty Spec.Result))
@@ -22,12 +24,11 @@ def _run.executeExample (config : Spec.Config) (action : BaseIO (Except IO.Error
   let t ← executeWithMTimeoutAndMeasureTime config.timeout action
   BaseIO.mapTask (t := t) fun
     | MaybeTimedOut.timedOut => return Spec.Result.failure_timeouted
-    | MaybeTimedOut.notTimedOut (duration, .error e) => do
-      let speed := Spec.Speed.speedOf config.slow duration
-      return (Spec.Result.failure e)
-    | MaybeTimedOut.notTimedOut (duration, .ok result) => do
-      let speed := Spec.Speed.speedOf config.slow duration
-      pure (Spec.Result.success speed duration)
+    | MaybeTimedOut.notTimedOut (duration, r) => do
+      let speed := Spec.Speed.speedOf_Int config.slow.toInt duration
+      match r with
+        | .error e => return Spec.Result.failure speed e
+        | .ok _r => return Spec.Result.success speed duration
 
 def _run.runItem
   (keepRunningRef : IO.Ref Bool)
@@ -41,21 +42,21 @@ def _run.runItem
   match testWithPath.test with
   | Spec.Tree.leaf pathName (some item) => do
     if keepRunning then do
-      Proxy.yield $ Spec.Event.test execution (pathName: Spec.TestLocator)
-      let result ← executeExample item.example
+      Proxy.yield $ Spec.Event.test execution pathName
+      let result ← executeExample (item.example_ ())
       match result with
       | Spec.Result.failure _ =>
           if config.failFast then keepRunningRef.set false else pure ()
       | _ => pure ()
       Proxy.yield $ Spec.Event.testEnd pathName result
-      pure #[Spec.Tree.Leaf pathName.snd (some result)]
+      pure #[Spec.Tree.leaf pathName.snd (some result)]
     else
-      pure #[Spec.Tree.Leaf pathName.snd none]
+      pure #[Spec.Tree.leaf pathName.snd none]
 
   | Spec.Tree.leaf pathName none => do
     if keepRunning then
       Proxy.yield $ Spec.Event.pending pathName
-    pure #[Spec.Tree.Leaf pathName.snd none]
+    pure #[Spec.Tree.leaf pathName.snd none]
 
   | Spec.Tree.node (Sum.inr cleanup) children => do
     let results ← loop keepRunningRef children

@@ -1,5 +1,7 @@
 import Std.Internal.Async
 
+namespace Spec
+
 open Std.Internal.IO.Async -- (Async sleep BaseAsync)
 
 inductive MaybeTimedOut (α : Type)

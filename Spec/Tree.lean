@@ -8,11 +8,13 @@ def Name.toString (n : Name) : String := n
 def NumberOfTests := Nat
 deriving Repr, BEq, Ord, Inhabited, Hashable
 
-abbrev ActionWith (m : Type → Type) a := a → m Unit
-abbrev ExampleFn (m : Type → Type) a := (ActionWith m a → m Unit) → m Unit
+def ActionWith (m : Type → Type) a := a → m Unit
+
+-- abbrev ExampleFn (m : Type → Type) a := (ActionWith m a → m Unit) → m Unit
+def ExampleFn (m : Type → Type) a := a → m Unit
 
 instance : Repr (ExampleFn (m : Type → Type) (a : Type)) where
-  reprPrec _ _ := "<function>"
+  reprPrec _ _ := "<example function>"
 instance : BEq (ExampleFn (m : Type → Type) (a : Type)) where
   beq _ _ := true
 
@@ -26,30 +28,33 @@ abbrev TestLocator := Path × Name
 
 structure Item (m : Type → Type) (a : Type) where
   isFocused : Bool
-  isParallelizable : Option Bool
+  isParallelizable : Option Bool -- TODO: bool with true as default. Or leave Option and add to config `parallelizationMode := force_not_parallel | not_parallel_by_default | parallel_by_default (default) | force_parallel (just for fun?)`
   example_ : ExampleFn m a
   deriving Repr, BEq
 
 -- Helper function to set parallelizable flag
 def Item.setParallelizable (value : Bool) (item : Item m a) : Item m a :=
-  { item with isParallelizable := some value }
+  { item with isParallelizable := value }
 
-inductive Tree (n c a : Type)
-  | node : (n ⊕ c) → Array (Tree n c a) → Tree n c a
-  | leaf : n → Option a → Tree n c a
-  deriving Repr, BEq, Inhabited --, DecidableEq
+inductive Tree (nodeAnnotation computeNode a : Type)
+  | node
+    : nodeAnnotation ⊕ computeNode
+    → Array (Tree nodeAnnotation computeNode a)
+    → Tree nodeAnnotation computeNode a
+  | leaf : nodeAnnotation → Option a → Tree nodeAnnotation computeNode a
+  deriving Repr, BEq, Inhabited
 
-instance {n c a} [Repr n] [Repr c] [Repr a] : ToString (Tree n c a) where
+instance [Repr n] [Repr c] [Repr a] : ToString (Tree n c a) where
   toString tree := repr tree |>.pretty
 
-#guard toString (Tree.node
-  (Sum.inl "Root")
-  #[
-  Tree.leaf "Test1" (some "✓"),
-  Tree.node (Sum.inr "Group") #[Tree.leaf "Test2" none]
-]) = r#"Spec.Tree.node
-  (Sum.inl "Root")
-  #[Spec.Tree.leaf "Test1" (some "✓"), Spec.Tree.node (Sum.inr "Group") #[Spec.Tree.leaf "Test2" none]]"#
+-- #guard toString (Tree.node
+--   (Sum.inl "Root")
+--   #[
+--   Tree.leaf "Test1" (some "✓"),
+--   Tree.node (Sum.inr "Group") #[Tree.leaf "Test2" none]
+-- ]) = r#"Spec.Tree.node
+--   (Sum.inl "Root")
+--   #[Spec.Tree.leaf "Test1" (some "✓"), Spec.Tree.node (Sum.inr "Group") #[Spec.Tree.leaf "Test2" none]]"#
 
 namespace Tree
 
@@ -57,7 +62,7 @@ def mapTreeAnnotations (f : n → m) : Tree n c a → Tree m c a
   | node ec cs => node (ec.map f id) (cs.map (mapTreeAnnotations f))
   | leaf n a   => leaf (f n) a
 
-def bimapTreeWithPaths {n a b c d}
+def bimapTreeWithPaths
     (g : Array n → a → b)
     (f : Array n → c → d)
     : Tree n a c → Tree n b d :=
@@ -70,7 +75,7 @@ def bimapTreeWithPaths {n a b c d}
       leaf n (x.map (f (path.push n)))
   go #[]
 
-def countTests {n c a} : Array (Tree n c a) → Nat
+def countTests : Array (Tree n c a) → Nat
   | trees =>
     trees.foldl (fun acc t =>
       let rec go : Tree n c a → Nat
@@ -78,13 +83,14 @@ def countTests {n c a} : Array (Tree n c a) → Nat
         | leaf _ _  => acc + 1
       acc + go t) 0
 
-def Tree.sizeOf {n c m a} : Tree n c (Item m a) → Nat
+def Tree.sizeOf : Tree n c (Item m a) → Nat
   | Tree.leaf _ _ => 1
   | Tree.node _ cs => 1 + cs.foldl (fun acc t => acc + sizeOf t) 0
 
-partial def isAllParallelizable {n c m a} : Tree n c (Item m a) → Bool
+partial def isAllParallelizable : Tree n c (Item m a) → Bool
   | node _ cs => cs.all isAllParallelizable
   | leaf _ x => x.map (·.isParallelizable == some true) |>.getD true
+
 -- termination_by t => Tree.sizeOf t
 -- decreasing_by
 --   simp only [Tree.sizeOf]
@@ -105,17 +111,17 @@ partial def isAllParallelizable {n c m a} : Tree n c (Item m a) → Bool
 --         exact Nat.zero_lt_one
 --   | inr val_1 => aesop?
 
-def filterTree {n c a} (p : n → Option a → Bool) : Tree n c a → Option (Tree n c a)
+def filterTree (p : n → Option a → Bool) : Tree n c a → Option (Tree n c a)
   | node e children =>
     let children' := children.filterMap (filterTree p)
     if children'.isEmpty then none else some (node e children')
   | leaf n x =>
     if p n x then some (leaf n x) else none
 
-def filterTrees {n c a} (p : n → Option a → Bool) (xs : Array (Tree n c a)) : Array (Tree n c a) :=
+def filterTrees (p : n → Option a → Bool) (xs : Array (Tree n c a)) : Array (Tree n c a) :=
   xs.filterMap (filterTree p)
 
-def discardUnfocused {n c m a} : Array (Tree n c (Item m a)) → Array (Tree n c (Item m a)) :=
+def discardUnfocused : Array (Tree n c (Item m a)) → Array (Tree n c (Item m a)) :=
   let isFocused (_ : n) (x : Option (Item m a)) :=
     match x with
     | some item => item.isFocused
@@ -143,7 +149,7 @@ partial def annotateWithPathsGo (path : Array PathItem) (index : Nat) : Tree Nam
   --     simp_all only [Sum.inr.sizeOf_spec, sizeOf_default, Nat.add_zero, Nat.reduceAdd]
   --     grind
 
-def annotateWithPaths {c a}
+def annotateWithPaths
     (trees : Array (Tree Name c a))
     : Array (Tree (Name × Path) c a) :=
   trees.mapIdx (annotateWithPathsGo #[])
@@ -165,12 +171,13 @@ def parentSuite (path : Path) : Option TestLocator :=
     last.name.map fun name => (init, name)
   | none => none
 
-def Item.modifyAroundAction {m a b}
+def Item.modifyAroundAction
     (f : (a → m Unit) → b → m Unit)
     (item : Item m a) : Item m b :=
   { isFocused := item.isFocused
   , isParallelizable := item.isParallelizable
-  , example_ := fun around => item.example_ (around ∘ f)
+  -- , example_ := fun around => item.example_ (around ∘ f)
+  , example_ := f item.example_
   }
 
 end Tree

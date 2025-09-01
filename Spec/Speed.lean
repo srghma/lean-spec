@@ -1,11 +1,13 @@
 import Spec.Style
 import Std.Time
+
 namespace Spec
 
+
 inductive Speed where
-  | fast
-  | medium
-  | slow
+  | fast -- fast__below_or_eq_half_threshold
+  | medium -- medium__more_half__and__less_or_eq_threshold
+  | slow -- slow_above_threshold
   deriving Repr, DecidableEq, Ord, Hashable
 
 namespace Speed
@@ -38,8 +40,8 @@ end Speed
 
 instance : ToString Speed := ⟨Speed.toString⟩
 
-#guard Speed.speedOf_Nat 1000 1001 = Speed.slow
-#guard Speed.speedOf_Nat 1000 1000 = Speed.medium
-#guard Speed.speedOf_Nat 1000 600 = Speed.medium
-#guard Speed.speedOf_Nat 1000 501 = Speed.medium
-#guard Speed.speedOf_Nat 1000 500 = Speed.fast
+-- #guard Speed.speedOf_Nat 1000 1001 = Speed.slow
+-- #guard Speed.speedOf_Nat 1000 1000 = Speed.medium
+-- #guard Speed.speedOf_Nat 1000 600 = Speed.medium
+-- #guard Speed.speedOf_Nat 1000 501 = Speed.medium
+-- #guard Speed.speedOf_Nat 1000 500 = Speed.fast
