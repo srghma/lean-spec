@@ -1,4 +1,8 @@
--- This module serves as the root of the `Spec` library.
--- Import modules here that should be built as part of the library.
 import Spec.Assertions
-import Spec.Discover
+import Spec.Basic
+import Spec.Summary
+import Spec.Tree
+import Spec.Event
+import Spec.Config
+import Spec.Runner
+-- import Spec.Discover

@@ -5,10 +5,10 @@ import Mathlib.Control.Monad.Writer
 namespace Spec
 
 -- Spec tree type alias
-abbrev SpecTree g i := Tree String (ActionWith g i) (Item g i)
+abbrev SpecTree (g : Type -> Type) (i : Type) := Tree String (ActionWith g i) (Item g i)
 
 -- SpecT monad transformer
-abbrev SpecT g i m a := WriterT (Array (SpecTree g i)) m a
+abbrev SpecT (g : Type -> Type) (i : Type) (m : Type -> Type) (a: Type) := WriterT (Array (SpecTree g i)) m a
 
 end Spec
 

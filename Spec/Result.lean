@@ -19,7 +19,8 @@ local instance : BEq IO.Error where
 
 inductive Result where
   | success (speed : Speed) (duration : Std.Time.Millisecond.Offset)
-  | failure (err : IO.Error)
+  | failure (speed : Speed) (err : IO.Error)
+  | failure_timeouted
   deriving Hashable, Repr, BEq, Inhabited
 
 instance : ToString Result where
