@@ -1,4 +1,5 @@
 import Pipes
+import Pipes.Core
 import Spec.Event
 import Spec.Config
 import Spec.Tree
@@ -12,13 +13,11 @@ import Std.Time
 namespace Spec
 
 -- Type aliases matching the PureScript definitions
-abbrev TestEvents := Producer Spec.Event IO (Array (Spec.Tree Spec.TestLocator PEmpty Spec.Result))
-abbrev Reporter := Pipe Spec.Event Spec.Event IO (Array (Spec.Tree Spec.TestLocator PEmpty Spec.Result))
+abbrev TestEvents := Producer Spec.Event IO (Array (Spec.Tree Spec.TestLocator Empty Spec.Result))
+abbrev Reporter := Pipe Spec.Event Spec.Event IO (Array (Spec.Tree Spec.TestLocator Empty Spec.Result))
 
 -- Data structure for test with path information
-structure TestWithPath where
-  test : Spec.SpecTree IO Unit
-  path : Spec.Path
+abbrev TestWithPath := Tree TestLocator (ActionWith IO Unit) (Item IO Unit)
 
 def _run.executeExample (config : Spec.Config) (action : BaseIO (Except IO.Error Unit)) : BaseIO (Task Spec.Result) := do
   let t ← executeWithMTimeoutAndMeasureTime config.timeout action
@@ -33,7 +32,7 @@ def _run.executeExample (config : Spec.Config) (action : BaseIO (Except IO.Error
 def _run.runItem
   (keepRunningRef : IO.Ref Bool)
   (testWithPath : TestWithPath) :
-  Producer Spec.Event IO (Array (Spec.Tree Spec.TestLocator PEmpty Spec.Result)) := do
+  TestEvents := do
   let keepRunning : Bool ← keepRunningRef.get
   let path := testWithPath.path
 
@@ -45,7 +44,7 @@ def _run.runItem
       Proxy.yield $ Spec.Event.test execution pathName
       let result ← executeExample (item.example_ ())
       match result with
-      | Spec.Result.failure _ =>
+      | Spec.Result.failure _ _ =>
           if config.failFast then keepRunningRef.set false else pure ()
       | _ => pure ()
       Proxy.yield $ Spec.Event.testEnd pathName result
@@ -71,7 +70,7 @@ def _run.runItem
       Proxy.yield $ Spec.Event.suiteEnd pathName
     pure #[Spec.Tree.Node (Sum.inl pathName.snd) results]
 
-def _run.loop (keepRunningRef : IO.Ref Bool) (tests : Array TestWithPath) : Producer Spec.Event IO (Array (Spec.Tree String PEmpty Spec.Result)) := do
+def _run.loop (keepRunningRef : IO.Ref Bool) (tests : Array TestWithPath) : TestEvents := do
   -- Group tests by parallelizability
   let (isP, isNotP) := tests.partition (Spec.Tree.isAllParallelizable ·.test)
 
@@ -96,44 +95,46 @@ def _run (config : Spec.Config) (spec : Spec.SpecT IO Unit IO Unit) : TestEvents
   let tests ← Spec.collect spec
   Proxy.yield (Spec.Event.start (Spec.Tree.countTests tests))
   let keepRunningRef ← IO.mkRef true
-  let filteredTests := match config.filterTree with
-    | some filter => filter tests
-    | none => tests
-  let results ← loop keepRunningRef (Spec.Tree.annotatedWithPaths filteredTests)
-  Proxy.yield (Spec.Event.end results)
+  -- let filteredTests: Array (SpecTree IO Unit) := config.filterTree tests
+  let filteredTests: Array (Tree Name (ActionWith IO Unit) (Item IO Unit)) := config.filterTree tests
+  let annotatedTests: Array (Tree TestLocator (ActionWith IO Unit) (Item IO Unit)) := Spec.Tree.annotateWithPaths filteredTests
+  let results ← _run.loop keepRunningRef annotatedTests
+  Proxy.yield (Spec.Event.end_ results)
   pure results
 
 -- Evaluate spec tree and return action to run tests
-def evalSpecT (config : Spec.Config) (reporters : Array Reporter) (spec : Spec.SpecT IO Unit IO Unit) :
-  IO (IO (Array (Spec.Tree String PEmpty Spec.Result))) := do
-  let runner ← _run config spec
-  pure $ do
-    let events := reporters.foldl (· >-> ·) runner
-    let reportedEvents := Pipes.runEffect $ events //> (fun _ => pure ())
+def evalSpecT
+  [Monad m]
+  (config : Spec.Config)
+  (reporters : Array Reporter)
+  (spec : Spec.SpecT IO Unit m Unit) :
+  m (IO (Array (Spec.Tree TestLocator Empty Spec.Result))) := do
+  let runner := _run config spec
+  let events := reporters.foldl (· >-> ·) runner
+  let events_withEracedE := events //> (fun (_event : Event) => Proxy.Pure (b := PEmpty) (b' := PUnit) ())
+  let reportedEvents: IO (Array (Spec.Tree TestLocator Empty Spec.Result)) := Proxy.runEffect events_withEracedE
 
-    if config.exit then do
-      -- Handle exit logic - simplified for Lean
-      try
-        let results ← reportedEvents
-        let exitCode := if Spec.Summary.successful results then 0 else 1
-        -- In a real implementation, you'd call System.exit here
-        IO.println s!"Exit code: {exitCode}"
-        pure results
-      catch e =>
-        IO.println s!"Error: {e}"
-        throw e
-    else
-      reportedEvents
+  if config.exit then do
+    -- Handle exit logic - simplified for Lean
+    try
+      let results ← reportedEvents
+      let exitCode := if Spec.Summary.successful? results then 0 else 1
+      -- In a real implementation, you'd call System.exit here
+      IO.println s!"Exit code: {exitCode}"
+      pure results
+    catch e =>
+      IO.println s!"Error: {e}"
+      throw e
+  else
+    reportedEvents
 
 -- Simplified runner functions
 def runSpecPure (reporters : Array Reporter) (spec : Spec Unit) : IO Unit := do
-  let action ← evalSpecT Spec.Config.default reporters spec
-  _ ← action
+  let _action ← evalSpecT Spec.Config.default reporters spec
   pure ()
 
 def runSpecPure' (config : Spec.Config) (reporters : Array Reporter) (spec : Spec Unit) : IO Unit := do
-  let action ← evalSpecT config reporters spec
-  _ ← action
+  let _action ← evalSpecT config reporters spec
   pure ()
 
 -- Main run function

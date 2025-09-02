@@ -1,3 +1,5 @@
+import Spec.Utils
+
 namespace Spec
 
 def Name := String
@@ -83,7 +85,7 @@ def countTests : Array (Tree n c a) → Nat
         | leaf _ _  => acc + 1
       acc + go t) 0
 
-def Tree.sizeOf : Tree n c (Item m a) → Nat
+def sizeOf : Tree n c (Item m a) → Nat
   | Tree.leaf _ _ => 1
   | Tree.node _ cs => 1 + cs.foldl (fun acc t => acc + sizeOf t) 0
 
@@ -122,7 +124,7 @@ def filterTrees (p : n → Option a → Bool) (xs : Array (Tree n c a)) : Array 
   xs.filterMap (filterTree p)
 
 def discardUnfocused : Array (Tree n c (Item m a)) → Array (Tree n c (Item m a)) :=
-  let isFocused (_ : n) (x : Option (Item m a)) :=
+  let isFocused (_name : n) (x : Option (Item m a)) :=
     match x with
     | some item => item.isFocused
     | none => false
@@ -130,13 +132,12 @@ def discardUnfocused : Array (Tree n c (Item m a)) → Array (Tree n c (Item m a
     let focused := filterTrees isFocused trees
     if focused.isEmpty then trees else focused
 
-partial def annotateWithPathsGo (path : Array PathItem) (index : Nat) : Tree Name c a → Tree (Name × Path) c a
-    | node e cs =>
-      let name := e.elim some (fun _ => none)
-      let path' := path.push ⟨index, name⟩
-      node (e.map (·, path) id) (cs.mapIdx (annotateWithPathsGo path'))
-    | leaf n x =>
-      leaf (n, path) x
+partial def annotateWithPathsGo (path : Array PathItem) (index : Nat) : Tree Name c a → Tree TestLocator c a
+  | node e cs =>
+    let name := e.elim some (fun _ => none)
+    let path' := path.push ⟨index, name⟩
+    node (e.map (path, ·) id) (cs.mapIdx (annotateWithPathsGo path'))
+  | leaf n x => leaf (path, n) x
 
   -- termination_by t => t
   -- decreasing_by
@@ -151,19 +152,13 @@ partial def annotateWithPathsGo (path : Array PathItem) (index : Nat) : Tree Nam
 
 def annotateWithPaths
     (trees : Array (Tree Name c a))
-    : Array (Tree (Name × Path) c a) :=
+    : Array (Tree TestLocator c a) :=
   trees.mapIdx (annotateWithPathsGo #[])
+
+end Tree
 
 def parentSuiteName (path : Path) : Array Name :=
   path.filterMap (·.name)
-
-def Array.popLast? (xs : Array α) : Option (Array α × α) :=
-  if h : xs.size > 0 then
-    let last := xs.back
-    let init := xs.pop
-    some (init, last)
-  else
-    none
 
 def parentSuite (path : Path) : Option TestLocator :=
   match Array.popLast? path with
@@ -180,5 +175,4 @@ def Item.modifyAroundAction
   , example_ := f item.example_
   }
 
-end Tree
 end Spec

@@ -20,7 +20,8 @@ inductive Event where
   | test     : Execution → TestLocator → Event
   | testEnd  : TestLocator → Result → Event
   | pending  : TestLocator → Event
-  | end      : Array (Tree Name Empty Result) → Event
+  -- | end_      : Array (Tree Name Empty Result) → Event
+  | end_      : Array (Tree TestLocator Empty Result) → Event
 
 deriving Repr
 

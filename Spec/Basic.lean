@@ -5,7 +5,7 @@ import Mathlib.Control.Monad.Writer
 namespace Spec
 
 -- Spec tree type alias
-abbrev SpecTree (g : Type -> Type) (i : Type) := Tree String (ActionWith g i) (Item g i)
+abbrev SpecTree (g : Type -> Type) (i : Type) := Tree Name (ActionWith g i) (Item g i)
 
 -- SpecT monad transformer
 abbrev SpecT (g : Type -> Type) (i : Type) (m : Type -> Type) (a: Type) := WriterT (Array (SpecTree g i)) m a
@@ -35,14 +35,14 @@ def mapSpecTree [Functor m]
 
 -- Computation type for hoisting
 inductive ComputationType where
-  | cleanUpWithContext : Array String → ComputationType
-  | testWithName : Array String → ComputationType
+  | cleanUpWithContext : Array Name → ComputationType
+  | testWithName : Array Name → ComputationType
   deriving Inhabited, Repr
 
 -- Bimap for trees with paths
-def bimapTreeWithPaths (onCleanUp : Array String → ActionWith a i → ActionWith b i)
-    (onTest : Array String → Item a i → Item b i) : SpecTree a i → SpecTree b i :=
-  let rec go (path : Array String) : SpecTree a i → SpecTree b i
+def bimapTreeWithPaths (onCleanUp : Array Name → ActionWith a i → ActionWith b i)
+    (onTest : Array Name → Item a i → Item b i) : SpecTree a i → SpecTree b i :=
+  let rec go (path : Array Name) : SpecTree a i → SpecTree b i
     | Tree.leaf name item =>
         Tree.leaf name (item.map (onTest (path ++ #[name])))
     | Tree.node (Sum.inl suiteName) children =>
@@ -57,9 +57,9 @@ def hoistSpec [Functor m] [Monad m'] (onM : ∀ {α}, m α → m' α) (f : Compu
     (spec : SpecT a i m a') : SpecT b i m' a' :=
   mapSpecTree onM (bimapTreeWithPaths onCleanUp onTest) spec
   where
-    onCleanUp (name : Array String) (around' : ActionWith a i) : ActionWith b i :=
+    onCleanUp (name : Array Name) (around' : ActionWith a i) : ActionWith b i :=
       fun i => f (ComputationType.cleanUpWithContext name) (around' i)
-    onTest (name : Array String) (item : Item a i) : Item b i :=
+    onTest (name : Array Name) (item : Item a i) : Item b i :=
       { item with
         -- example_ := fun g => g (f (ComputationType.testWithName name) ∘ item.example_ ∘ (fun q f => f q)) }
         example_ := fun g => f (ComputationType.testWithName name) (item.example_ g) }
@@ -130,13 +130,13 @@ def focus [Monad m] [FocusWarning] : SpecT g i m a -> SpecT g i m a :=
   )
 
 -- Describe function
-def describe [Monad m] (name : String) (spec : SpecT g i m a) : SpecT g i m a :=
+def describe [Monad m] (name : Name) (spec : SpecT g i m a) : SpecT g i m a :=
   WriterT.mk do
     let (a, t) ← WriterT.run spec
     pure (a, #[Tree.node (Sum.inl name) t])
 
 -- Describe only (focused describe)
-def describeOnly [Monad m] [FocusWarning] (name : String) (spec : SpecT g i m a) : SpecT g i m a :=
+def describeOnly [Monad m] [FocusWarning] (name : Name) (spec : SpecT g i m a) : SpecT g i m a :=
   focus (describe name spec)
 
 -- Helper function to set parallelizable flag
@@ -155,15 +155,15 @@ def sequential [Monad m] (spec : SpecT g i m a) : SpecT g i m a :=
   mapSpecTree id (SpecTree.setParallelizable false) spec
 
 -- Pending test
-def pending [Monad m] (name : String) : SpecT g i m Unit :=
+def pending [Monad m] (name : Name) : SpecT g i m Unit :=
   tell #[Tree.leaf name none]
 
 -- Pending test with ignored body
-def pending' [Monad m] (name : String) (_body : g Unit) : SpecT g i m Unit :=
+def pending' [Monad m] (name : Name) (_body : g Unit) : SpecT g i m Unit :=
   pending name
 
 -- It function for creating tests
-def it [Monad m] [Example t arg g] (name : String) (test : t) : SpecT g arg m Unit :=
+def it [Monad m] [Example t arg g] (name : Name) (test : t) : SpecT g arg m Unit :=
   tell #[Tree.leaf name (some {
     isParallelizable := none,
     isFocused := false,
@@ -175,7 +175,7 @@ def itOnly [Monad m] [FocusWarning] [Example t arg g] (name : String) (test : t)
   focus (it name test)
 
 def SpecTree.modifyAroundAction (f : ActionWith g i → ActionWith g i') : SpecTree g i → SpecTree g i'
-  | Tree.leaf name item => Tree.leaf name (item.map (Spec.Tree.Item.modifyAroundAction f))
+  | Tree.leaf name item => Tree.leaf name (item.map (Spec.Item.modifyAroundAction f))
   | Tree.node (Sum.inl label) children =>
       Tree.node (Sum.inl label) (children.map (modifyAroundAction f))
   | Tree.node (Sum.inr around') children =>
