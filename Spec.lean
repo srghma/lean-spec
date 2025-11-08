@@ -9,5 +9,5 @@ import Spec.Style
 import Spec.Summary
 import Spec.Timeout
 import Spec.Tree
--- import Spec.Runner
+import Spec.Runner
 -- import Spec.Discover

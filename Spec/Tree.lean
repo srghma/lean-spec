@@ -38,12 +38,18 @@ structure Item (m : Type → Type) (a : Type) where
 def Item.setParallelizable (value : Bool) (item : Item m a) : Item m a :=
   { item with isParallelizable := value }
 
-inductive Tree (nodeAnnotation computeNode a : Type)
+-- inductive Tree (nodeAnnotation cleanup a : Type)
+--   | node : Name → Array (Tree c a) → Tree c a
+--   | nodeWithCleanup : Option (Name × Location) → c → Array (Tree c a) → Tree c a
+--   | leaf : a → Tree c a
+--   deriving Repr, BEq, Inhabited
+
+inductive Tree (nodeAnnotation cleanup a : Type)
   | node
-    : nodeAnnotation ⊕ computeNode
-    → Array (Tree nodeAnnotation computeNode a)
-    → Tree nodeAnnotation computeNode a
-  | leaf : nodeAnnotation → Option a → Tree nodeAnnotation computeNode a
+    : nodeAnnotation ⊕ cleanup
+    → Array (Tree nodeAnnotation cleanup a)
+    → Tree nodeAnnotation cleanup a
+  | leaf : nodeAnnotation → Option a → Tree nodeAnnotation cleanup a
   deriving Repr, BEq, Inhabited
 
 instance [Repr n] [Repr c] [Repr a] : ToString (Tree n c a) where

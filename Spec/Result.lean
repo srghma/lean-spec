@@ -23,5 +23,11 @@ inductive Result where
   | failure_timeouted
   deriving Hashable, Repr, BEq, Inhabited
 
+namespace Result
+def isSuccess : Result -> Bool
+  | .success _ _ => true
+  | _ => false
+end Result
+
 instance : ToString Result where
   toString x := repr x |>.pretty

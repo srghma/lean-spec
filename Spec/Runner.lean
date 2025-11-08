@@ -8,13 +8,14 @@ import Spec.Result
 import Spec.Summary
 import Spec.Timeout
 import Pipes.Concurrent.MergeProducers
+import Pipes.Sequential.MergeProducers
 import Std.Time
 
 namespace Spec
 
 -- Type aliases matching the PureScript definitions
 abbrev TestEvents := Producer Spec.Event IO (Array (Spec.Tree Spec.TestLocator Empty Spec.Result))
-abbrev Reporter := Pipe Spec.Event Spec.Event IO (Array (Spec.Tree Spec.TestLocator Empty Spec.Result))
+abbrev Reporter := Pipe Spec.Event Spec.Event IO (Array (Spec.Tree Spec.TestLocator Empty Spec.Result)) -- TODO: multiple subscribers?
 
 -- Data structure for test with path information
 abbrev TestWithPath := Tree TestLocator (ActionWith IO Unit) (Item IO Unit)
@@ -29,86 +30,86 @@ def _run.executeExample (config : Spec.Config) (action : BaseIO (Except IO.Error
         | .error e => return Spec.Result.failure speed e
         | .ok _r => return Spec.Result.success speed duration
 
+open Proxy
+
+mutual
 def _run.runItem
+  (config : Spec.Config)
   (keepRunningRef : IO.Ref Bool)
   (testWithPath : TestWithPath) :
   TestEvents := do
-  let keepRunning : Bool ← keepRunningRef.get
-  let path := testWithPath.path
-
-  let execution := if Spec.Tree.isAllParallelizable testWithPath.test then Spec.Execution.parallel else Spec.Execution.sequential
-
-  match testWithPath.test with
+  let keepRunning : Bool ← (keepRunningRef.get : IO Bool)
+  let execution := if Spec.Tree.isAllParallelizable testWithPath then Spec.Execution.parallel else Spec.Execution.sequential
+  match testWithPath with
   | Spec.Tree.leaf pathName (some item) => do
     if keepRunning then do
       Proxy.yield $ Spec.Event.test execution pathName
-      let result ← executeExample (item.example_ ())
-      match result with
-      | Spec.Result.failure _ _ =>
-          if config.failFast then keepRunningRef.set false else pure ()
-      | _ => pure ()
+      let t ← executeExample config (item.example_ .unit).toBaseIO
+      let result := t.get
+      if config.failFast && result.isSuccess then
+        (keepRunningRef.set false : IO Unit)
       Proxy.yield $ Spec.Event.testEnd pathName result
-      pure #[Spec.Tree.leaf pathName.snd (some result)]
+      pure #[Spec.Tree.leaf pathName (some result)]
     else
-      pure #[Spec.Tree.leaf pathName.snd none]
+      pure #[Spec.Tree.leaf pathName none]
 
   | Spec.Tree.leaf pathName none => do
     if keepRunning then
       Proxy.yield $ Spec.Event.pending pathName
-    pure #[Spec.Tree.leaf pathName.snd none]
+    pure #[Spec.Tree.leaf pathName none]
 
   | Spec.Tree.node (Sum.inr cleanup) children => do
-    let results ← loop keepRunningRef children
+    let results ← loop config keepRunningRef children
     cleanup ()
     pure results
 
   | Spec.Tree.node (Sum.inl pathName) children => do
     if keepRunning then do
       Proxy.yield $ Spec.Event.suite execution pathName
-    let results ← loop keepRunningRef children
+    let results ← loop config keepRunningRef children
     if keepRunning then
       Proxy.yield $ Spec.Event.suiteEnd pathName
-    pure #[Spec.Tree.Node (Sum.inl pathName.snd) results]
+    pure #[Spec.Tree.node (Sum.inl pathName) results]
 
-def _run.loop (keepRunningRef : IO.Ref Bool) (tests : Array TestWithPath) : TestEvents := do
+def _run.loop (config : Spec.Config) (keepRunningRef : IO.Ref Bool) (tests : Array TestWithPath) : TestEvents := do
   -- Group tests by parallelizability
-  let (isP, isNotP) := tests.partition (Spec.Tree.isAllParallelizable ·.test)
+  let (isP, isNotP) := tests.partition Spec.Tree.isAllParallelizable
 
-  let isP' <- do
-    -- Run parallel tests
-    let producers := isP.map (runItem keepRunningRef)
-    results ← mergeProducers producers
-    pure results.flatten
-
-  let isNotP <- do
+  let isNotP' <- do
     -- Run sequential tests
-    results ← group.foldlM (fun acc test => do
-      result ← runItem keepRunningRef test
+    let results ← isNotP.foldlM (fun acc test => do
+      let result ← runItem config keepRunningRef test
       pure (acc ++ result)
     ) #[]
     pure results
 
+  let isP' <- do
+    -- Run parallel tests
+    let producers := isP.map (fun x => Producer.EIOtoBaseIO $ runItem config keepRunningRef x)
+    let results ← mergeProducers producers
+    pure results
+
   pure results
+end
 
 -- Main runner implementation
-def _run (config : Spec.Config) (spec : Spec.SpecT IO Unit IO Unit) : TestEvents := do
-  let tests ← Spec.collect spec
+def _run (config : Spec.Config) (spec : Spec.SpecT IO Unit Id Unit) : TestEvents := do
+  let tests := (Spec.collect spec).run
   Proxy.yield (Spec.Event.start (Spec.Tree.countTests tests))
   let keepRunningRef ← IO.mkRef true
   -- let filteredTests: Array (SpecTree IO Unit) := config.filterTree tests
-  let filteredTests: Array (Tree Name (ActionWith IO Unit) (Item IO Unit)) := config.filterTree tests
-  let annotatedTests: Array (Tree TestLocator (ActionWith IO Unit) (Item IO Unit)) := Spec.Tree.annotateWithPaths filteredTests
-  let results ← _run.loop keepRunningRef annotatedTests
+  let filteredTests: Array (SpecTree IO Unit) := config.filterTree tests
+  let annotatedTests: Array TestWithPath := Spec.Tree.annotateWithPaths filteredTests
+  let results ← _run.loop config keepRunningRef annotatedTests
   Proxy.yield (Spec.Event.end_ results)
   pure results
 
 -- Evaluate spec tree and return action to run tests
 def evalSpecT
-  [Monad m]
   (config : Spec.Config)
   (reporters : Array Reporter)
-  (spec : Spec.SpecT IO Unit m Unit) :
-  m (IO (Array (Spec.Tree TestLocator Empty Spec.Result))) := do
+  (spec : Spec.SpecT IO Unit Id Unit) :
+  IO (Array (Spec.Tree TestLocator Empty Spec.Result)) := do
   let runner := _run config spec
   let events := reporters.foldl (· >-> ·) runner
   let events_withEracedE := events //> (fun (_event : Event) => Proxy.Pure (b := PEmpty) (b' := PUnit) ())

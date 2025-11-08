@@ -13,7 +13,7 @@ abbrev SpecT (g : Type -> Type) (i : Type) (m : Type -> Type) (a: Type) := Write
 end Spec
 
 -- Spec type alias
-abbrev Spec := Spec.SpecT IO PUnit Id
+abbrev Spec := Spec.SpecT IO Unit Id
 
 namespace Spec
 
