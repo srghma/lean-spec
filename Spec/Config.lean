@@ -1,28 +1,47 @@
-import Spec.Speed
-import Spec.Basic
-import Std.Time
+module
+import Init.System.IO
+public import Spec.Assert
+
+@[expose] public section
 
 namespace Spec
 
--- assuming these are already defined
--- `SpecTree` is the test tree, analogous to `Tree` in your other modules
-
-def TreeFilter := {g : Type -> Type} -> {i : Type} -> Array (SpecTree g i) -> Array (SpecTree g i)
+inductive Color where
+  | Always
+  | Never
+  | Default
+  deriving Inhabited, Repr, BEq
 
 structure Config where
-  slow       : Std.Time.Millisecond.Offset -- ?
-  timeout    : Option Std.Time.Millisecond.Offset
-  exit       : Bool
-  failFast   : Bool
-  filterTree : TreeFilter
+  /-- Substring filter (`--example`/`-e`). -/
+  example? : Option String := none
+  /-- Regex-ish filter (`--example-matches`/`-E`). We use substring matching of the
+  pattern's literal characters to avoid a regex dependency; callers wanting real
+  regexes can pre-filter. -/
+  exampleMatches? : Option String := none
+  failFast : Bool := false
+  onlyFailures : Bool := false
+  /-- Per-test timeout in milliseconds; `none` means no timeout. -/
+  timeoutMs : Option Nat := some 30000
+  /-- Requested reporter names; empty means caller default. -/
+  reporterNames : List String := []
+  /-- ANSI color mode; `default` means auto-detect from stdout TTY. -/
+  color : Color := .Default
+  parallel : Bool := true
+  deriving Inhabited
 
-namespace Config
+/-- File used to remember which tests failed last run (`--only-failures`). -/
+def failuresFile : IO System.FilePath := do
+  let base ← _root_.Spec.Assert.initialCwd.get
+  return base / ".spec-failures"
 
--- `identity` for filterTree is default
-def default : Config :=
-  { slow       := ⟨75⟩
-  , timeout    := some ⟨2000⟩
-  , exit       := true
-  , failFast   := false
-  , filterTree := id
-  }
+def resolveColor (cfg : Config) : IO Bool := do
+  match cfg.color with
+  | .Always => pure true
+  | .Never => pure false
+  | .Default => do
+    let out ← IO.getStdout
+    return (← out.isTty)
+
+end Spec
+end

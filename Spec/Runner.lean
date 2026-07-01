@@ -1,149 +1,122 @@
-import Pipes
-import Pipes.Core
-import Spec.Event
-import Spec.Config
-import Spec.Tree
-import Spec.Basic
-import Spec.Result
-import Spec.Summary
-import Spec.Timeout
-import Pipes.Concurrent.MergeProducers
-import Pipes.Sequential.MergeProducers
-import Std.Time
+module
+import Init.System.IO
+public import Std.Sync.Mutex
+public import Spec.Config
+public import Spec.ArgsParser
+public import Spec.Events
+
+open IO
+
+@[expose] public section
 
 namespace Spec
 
--- Type aliases matching the PureScript definitions
-abbrev TestEvents := Producer Spec.Event IO (Array (Spec.Tree Spec.TestLocator Empty Spec.Result))
-abbrev Reporter := Pipe Spec.Event Spec.Event IO (Array (Spec.Tree Spec.TestLocator Empty Spec.Result)) -- TODO: multiple subscribers?
+/-- Run an action with an optional timeout (ms), returning its outcome and
+duration. Uses a task + polling so we don't depend on a particular async API. -/
+def runLeaf (cfg : Config) (l : Leaf Unit) : IO ItemResult := do
+  match l.kind with
+  | .inr () =>
+    return { path := l.path, name := l.name, outcome := .pending, durationMs := 0 }
+  | .inl action =>
+    let start ← IO.monoMsNow
+    let task ← IO.asTask (prio := .dedicated) do
+      try action (); pure (Outcome.success)
+      catch e => pure (Outcome.failure (toString e))
+    let outcome ← match cfg.timeoutMs with
+      | none =>
+        match (← IO.wait task) with
+        | .ok o => pure o
+        | .error e => pure (Outcome.failure (toString e))
+      | some ms =>
+        let deadline := start + ms
+        let mut res : Option Outcome := none
+        while res.isNone do
+          if (← IO.hasFinished task) then
+            res := some (match task.get with
+              | .ok o => o
+              | .error e => Outcome.failure (toString e))
+          else if (← IO.monoMsNow) > deadline then
+            IO.cancel task
+            res := some (Outcome.failure s!"timed out after {ms}ms")
+          else
+            IO.sleep 1
+        pure res.get!
+    let stop ← IO.monoMsNow
+    return { path := l.path, name := l.name, outcome, durationMs := stop - start }
 
--- Data structure for test with path information
-abbrev TestWithPath := Tree TestLocator (ActionWith IO Unit) (Item IO Unit)
+def isFailure : Outcome → Bool
+  | .failure _ => true
+  | _ => false
 
-def _run.executeExample (config : Spec.Config) (action : BaseIO (Except IO.Error Unit)) : BaseIO (Task Spec.Result) := do
-  let t ← executeWithMTimeoutAndMeasureTime config.timeout action
-  BaseIO.mapTask (t := t) fun
-    | MaybeTimedOut.timedOut => return Spec.Result.failure_timeouted
-    | MaybeTimedOut.notTimedOut (duration, r) => do
-      let speed := Spec.Speed.speedOf_Int config.slow.toInt duration
-      match r with
-        | .error e => return Spec.Result.failure speed e
-        | .ok _r => return Spec.Result.success speed duration
-
-open Proxy
-
-mutual
-def _run.runItem
-  (config : Spec.Config)
-  (keepRunningRef : IO.Ref Bool)
-  (testWithPath : TestWithPath) :
-  TestEvents := do
-  let keepRunning : Bool ← (keepRunningRef.get : IO Bool)
-  let execution := if Spec.Tree.isAllParallelizable testWithPath then Spec.Execution.parallel else Spec.Execution.sequential
-  match testWithPath with
-  | Spec.Tree.leaf pathName (some item) => do
-    if keepRunning then do
-      Proxy.yield $ Spec.Event.test execution pathName
-      let t ← executeExample config (item.example_ .unit).toBaseIO
-      let result := t.get
-      if config.failFast && result.isSuccess then
-        (keepRunningRef.set false : IO Unit)
-      Proxy.yield $ Spec.Event.testEnd pathName result
-      pure #[Spec.Tree.leaf pathName (some result)]
-    else
-      pure #[Spec.Tree.leaf pathName none]
-
-  | Spec.Tree.leaf pathName none => do
-    if keepRunning then
-      Proxy.yield $ Spec.Event.pending pathName
-    pure #[Spec.Tree.leaf pathName none]
-
-  | Spec.Tree.node (Sum.inr cleanup) children => do
-    let results ← loop config keepRunningRef children
-    cleanup ()
-    pure results
-
-  | Spec.Tree.node (Sum.inl pathName) children => do
-    if keepRunning then do
-      Proxy.yield $ Spec.Event.suite execution pathName
-    let results ← loop config keepRunningRef children
-    if keepRunning then
-      Proxy.yield $ Spec.Event.suiteEnd pathName
-    pure #[Spec.Tree.node (Sum.inl pathName) results]
-
-def _run.loop (config : Spec.Config) (keepRunningRef : IO.Ref Bool) (tests : Array TestWithPath) : TestEvents := do
-  -- Group tests by parallelizability
-  let (isP, isNotP) := tests.partition Spec.Tree.isAllParallelizable
-
-  let isNotP' <- do
-    -- Run sequential tests
-    let results ← isNotP.foldlM (fun acc test => do
-      let result ← runItem config keepRunningRef test
-      pure (acc ++ result)
-    ) #[]
-    pure results
-
-  let isP' <- do
-    -- Run parallel tests
-    let producers := isP.map (fun x => Producer.EIOtoBaseIO $ runItem config keepRunningRef x)
-    let results ← mergeProducers producers
-    pure results
-
-  pure results
-end
-
--- Main runner implementation
-def _run (config : Spec.Config) (spec : Spec.SpecT IO Unit Id Unit) : TestEvents := do
-  let tests := (Spec.collect spec).run
-  Proxy.yield (Spec.Event.start (Spec.Tree.countTests tests))
-  let keepRunningRef ← IO.mkRef true
-  -- let filteredTests: Array (SpecTree IO Unit) := config.filterTree tests
-  let filteredTests: Array (SpecTree IO Unit) := config.filterTree tests
-  let annotatedTests: Array TestWithPath := Spec.Tree.annotateWithPaths filteredTests
-  let results ← _run.loop config keepRunningRef annotatedTests
-  Proxy.yield (Spec.Event.end_ results)
-  pure results
-
--- Evaluate spec tree and return action to run tests
-def evalSpecT
-  (config : Spec.Config)
-  (reporters : Array Reporter)
-  (spec : Spec.SpecT IO Unit Id Unit) :
-  IO (Array (Spec.Tree TestLocator Empty Spec.Result)) := do
-  let runner := _run config spec
-  let events := reporters.foldl (· >-> ·) runner
-  let events_withEracedE := events //> (fun (_event : Event) => Proxy.Pure (b := PEmpty) (b' := PUnit) ())
-  let reportedEvents: IO (Array (Spec.Tree TestLocator Empty Spec.Result)) := Proxy.runEffect events_withEracedE
-
-  if config.exit then do
-    -- Handle exit logic - simplified for Lean
+/-- Run a flattened, filtered list of leaves, dispatching to reporters.
+`reporters` are already built (state allocated). Per-item reporting is
+serialized through `lock` so parallel output is not interleaved. -/
+def runLeaves (cfg : Config) (reporters : List Reporter) (leaves : Array (Leaf Unit)) :
+    IO (Array ItemResult) := do
+  for r in reporters do r.start leaves.size
+  let lock ← Std.BaseMutex.new
+  let report (res : ItemResult) : IO Unit := do
+    lock.lock
     try
-      let results ← reportedEvents
-      let exitCode := if Spec.Summary.successful? results then 0 else 1
-      -- In a real implementation, you'd call System.exit here
-      IO.println s!"Exit code: {exitCode}"
-      pure results
-    catch e =>
-      IO.println s!"Error: {e}"
-      throw e
+      for r in reporters do r.reportItem res
+    finally
+      lock.unlock
+  let mut results : Array ItemResult := #[]
+  if cfg.parallel && !cfg.failFast then
+    let tasks ← leaves.mapM fun l => IO.asTask (prio := .dedicated) do
+      let res ← runLeaf cfg l
+      report res
+      pure res
+    for t in tasks do
+      let res ← match (← IO.wait t) with
+        | .ok r => pure r
+        | .error e => pure { path := #[], name := "<task>", outcome := .failure (toString e), durationMs := 0 }
+      results := results.push res
   else
-    reportedEvents
+    for l in leaves do
+      let res ← runLeaf cfg l
+      report res
+      results := results.push res
+      if cfg.failFast && isFailure res.outcome then
+        break
+  for r in reporters do r.reportSummary results
+  return results
 
--- Simplified runner functions
-def runSpecPure (reporters : Array Reporter) (spec : Spec Unit) : IO Unit := do
-  let _action ← evalSpecT Spec.Config.default reporters spec
-  pure ()
+def saveFailures (results : Array ItemResult) : IO Unit := do
+  let failed := results.filterMap fun r =>
+    if isFailure r.outcome then some (String.intercalate " » " (r.path.toList ++ [r.name])) else none
+  unless failed.isEmpty do
+    let file ← failuresFile
+    IO.FS.writeFile file (String.intercalate "\n" failed.toList)
 
-def runSpecPure' (config : Spec.Config) (reporters : Array Reporter) (spec : Spec Unit) : IO Unit := do
-  let _action ← evalSpecT config reporters spec
-  pure ()
+def loadFailures : IO (Array String) := do
+  try
+    let file ← failuresFile
+    let content ← IO.FS.readFile file
+    return content.splitOn "\n" |>.filter (!·.isEmpty) |>.toArray
+  catch _ => return #[]
 
--- Main run function
-def run (reporters : Array Reporter) (spec : Spec Unit) : IO Unit :=
-  runSpecPure' Spec.Config.default reporters spec
+def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) : IO Bool := do
+  let (_, trees) := spec.run #[]
+  let globalHasOnly := trees.any SpecTree.hasOnly
+  let leaves := trees.foldl (init := #[]) fun acc t =>
+    acc ++ flatten globalHasOnly false #[] t
+  let failedNames ← if cfg.onlyFailures then loadFailures else pure #[]
+  let selected := leaves.filter (matchesFilters cfg failedNames)
+  let useColor ← resolveColor cfg
+  let built ← reporters.mapM (fun mk => mk useColor)
+  let results ← runLeaves cfg built selected
+  saveFailures results
+  let anyFailed := results.any (isFailure ·.outcome)
+  return anyFailed
 
-def runSpec (reporters : Array Reporter) (spec : Spec Unit) : IO Unit :=
-  runSpecPure reporters spec
+def runSpec (args : List String) (reporters : List ReporterBuilder) (spec : Spec) : IO Bool := do
+  let cfg := parseArgs args
+  runSpecWith cfg reporters spec
 
-def runSpec' (config : Spec.Config) (reporters : Array Reporter) (spec : Spec Unit) : IO Unit :=
-  runSpecPure' config reporters spec
+def runSpecAndReturnExitCode (args : List String) (reporters : List ReporterBuilder) (spec : Spec) : IO UInt32 := do
+  let failed ← runSpec args reporters spec
+  return if failed then 1 else 0
+
+end Spec
+end

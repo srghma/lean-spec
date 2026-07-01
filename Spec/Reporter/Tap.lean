@@ -1,57 +1,38 @@
--- Spec/Reporter/Tap.lean
-import Spec.Reporter.Base
-import Spec.Result
-import Spec.Event
-import Spec.Summary
+module
+public import Spec.Reporter.Base
+public import Spec.Events
+
+@[expose] public section
 
 namespace Spec.Reporter.Tap
 
--- TAP reporter state (test counter)
-abbrev TapReporterState := Nat
+open Spec.Reporter.Base
 
--- Escape title for TAP format (remove # characters)
-def escTitle (s : String) : String :=
-  s.replace "#" ""
+/-- Strip `#` from titles so they're TAP-safe. -/
+def escTitle (s : String) : String := s.replace "#" ""
 
--- Escape message for TAP format (indent all lines)
+/-- Prefix every line of a message so it reads as a TAP diagnostic. -/
 def escMsg (s : String) : String :=
-  s.splitOn "\n"
-  |>.map ("  " ++ ·)
-  |> String.intercalate "\n"
+  String.intercalate "\n" ((s.splitOn "\n").map ("  " ++ ·))
 
--- TAP reporter implementation
-def tapReporter : Reporter :=
-  Base.defaultReporter (1 : TapReporterState) fun event => do
-    match event with
-    | Event.start nTests => do
-      lift $ tell s!"1..{nTests}\n"
-    | Event.pending (_, name) => do
-      n ← get
-      lift $ tell s!"ok {n} {escTitle name} # SKIP -\n"
-      set (n + 1)
-    | Event.testEnd (_, name) (Result.Success _ _) => do
-      n ← get
-      lift $ tell s!"ok {n} {escTitle name}\n"
-      set (n + 1)
-    | Event.testEnd (_, name) (Result.Failure err) => do
-      n ← get
-      lift $ tell s!"not ok {n} {escTitle name}\n"
-      lift $ tell $ escMsg err.toString ++ "\n"
-      match err.getStackTrace with
-      | some stack =>
-        let indentedStack := stack.splitOn "\n"
-          |>.map ("    " ++ ·)
-          |> String.intercalate "\n"
-        lift $ tell $ indentedStack ++ "\n"
-      | none => pure ()
-      set (n + 1)s
-    | Event.end results => do
-      match Summary.summarize results with
-      | Summary.Count passed failed pending => do
-        lift $ tell s!"# tests {failed + passed + pending}\n"
-        lift $ tell s!"# pass {passed + pending}\n"
-        lift $ tell s!"# fail {failed}\n"
-    | _ =>
-      pure ()
+/-- TAP reporter (Test Anything Protocol). -/
+def tapReporter : ReporterBuilder := fun _useColor => do
+  let n ← IO.mkRef (1 : Nat)
+  pure
+    { start := fun total => IO.println s!"1..{total}"
+    , reportItem := fun res => do
+        let i ← n.modifyGet fun i => (i, i + 1)
+        let title := escTitle (String.intercalate " » " (res.path.toList ++ [res.name]))
+        match res.outcome with
+        | .success => IO.println s!"ok {i} {title}"
+        | .pending => IO.println s!"ok {i} {title} # SKIP -"
+        | .failure err =>
+          IO.println s!"not ok {i} {title}"
+          IO.println (escMsg err)
+    , reportSummary := fun results => do
+        let s := summarize results
+        IO.println s!"# tests {s.failed + s.passed + s.pending}"
+        IO.println s!"# pass {s.passed + s.pending}"
+        IO.println s!"# fail {s.failed}" }
 
 end Spec.Reporter.Tap

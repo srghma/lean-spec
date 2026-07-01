@@ -1,13 +1,12 @@
-import Spec.Assertions
-import Spec.Basic
-import Spec.Config
-import Spec.Console
-import Spec.Event
-import Spec.Result
-import Spec.Speed
-import Spec.Style
-import Spec.Summary
-import Spec.Timeout
-import Spec.Tree
-import Spec.Runner
--- import Spec.Discover
+module
+prelude
+public import Spec.Assert
+public import Spec.Reporter
+public import Spec.Speed
+public import Spec.Timeout
+public import Spec.Tree
+public import Spec.Hooks
+public import Spec.Events
+public import Spec.Runner
+public import Spec.SelectReporter
+public import Spec.RunSpec
