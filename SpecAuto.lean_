@@ -1,0 +1,62 @@
+module
+prelude
+import Init.System.IO
+
+open System
+
+namespace SpecAuto
+
+def moduleName (parts : List String) : String :=
+  String.intercalate "." parts
+
+private def renderImports (modules : List String) : String :=
+  let imports := modules.map fun m => s!"public import {m}"
+  if imports.isEmpty then
+    ""
+  else
+    String.intercalate "\n" imports ++ "\n"
+
+def discoveredSpecsSource (modules : List String) : String :=
+  "module\n" ++
+  renderImports modules
+
+private def collectTestModulesFrom (dir : FilePath) (parts : List String) : IO (List String) := do
+  let entries ← try
+    dir.readDir
+  catch
+    | .noFileOrDirectory .. => pure []
+    | e => throw e
+  let mut modules : List String := []
+  for entry in entries do
+    if ← entry.path.isDir then
+      modules := modules ++ (← collectTestModulesFrom entry.path (parts ++ [entry.fileName]))
+    else if entry.fileName.endsWith "Test.lean" then
+      let stem := entry.fileName.dropSuffix ".lean" |>.toString
+      modules := modules ++ [moduleName (parts ++ [stem])]
+  pure <| modules.mergeSort (fun a b => compare a b == .lt)
+
+def findTestModulesFrom (baseModule : List String) (root : FilePath) : IO (List String) :=
+  collectTestModulesFrom root baseModule
+
+def findTestModules (root : FilePath) : IO (List String) :=
+  collectTestModulesFrom root []
+
+private def createParentDirs (path : FilePath) : IO Unit := do
+  if let some dir := path.parent then
+    IO.FS.createDirAll dir
+
+def writeDiscoveredSpecs (outFile : FilePath) (modules : List String) : IO Unit := do
+  createParentDirs outFile
+  IO.FS.writeFile outFile (discoveredSpecsSource modules)
+
+def findAndWriteDiscoveredSpecsFrom (baseModule : List String) (root outFile : FilePath) : IO (List String) := do
+  let modules ← findTestModulesFrom baseModule root
+  writeDiscoveredSpecs outFile modules
+  pure modules
+
+def findAndWriteDiscoveredSpecs (root outFile : FilePath) : IO (List String) := do
+  let modules ← findTestModules root
+  writeDiscoveredSpecs outFile modules
+  pure modules
+
+end SpecAuto

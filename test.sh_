@@ -1,0 +1,107 @@
+# › test.sh cannot use SpecAuto?
+#
+# It can, but only if the temp project makes SpecAuto available to the Lakefile first.
+#
+# Right now test.sh is self-contained on purpose. The temp lakefile.lean cannot just import SpecAuto unless one of these is true:
+#
+# - SpecAuto.lean is copied into the temp project and declared as lean_lib SpecAuto
+# - or the temp project depends on this repo in a way that exposes SpecAuto before the script is elaborated
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+mkdir -p "$tmpdir/Spec/Nested"
+
+cat >"$tmpdir/lakefile.lean" <<'EOF'
+import Lake
+
+open Lake DSL
+
+package smoke where
+  version := v!"0.1.0"
+
+lean_lib Spec where
+
+@[default_target]
+lean_exe smoke where
+  root := `Main
+
+private def moduleName (parts : List String) : String :=
+  String.intercalate "." parts
+
+private def renderImports (modules : List String) : String :=
+  let imports := modules.map fun m => s!"public import {m}"
+  if imports.isEmpty then
+    ""
+  else
+    String.intercalate "\n" imports ++ "\n"
+
+private def discoveredSpecsSource (modules : List String) : String :=
+  "module\n" ++ renderImports modules
+
+private partial def collectTestModulesFrom (dir : System.FilePath) (parts : List String) : IO (List String) := do
+  let entries ← try
+    dir.readDir
+  catch
+    | .noFileOrDirectory .. => pure #[]
+    | e => throw e
+  let mut modules : List String := []
+  for entry in entries do
+    if ← entry.path.isDir then
+      modules := modules ++ (← collectTestModulesFrom entry.path (parts ++ [entry.fileName]))
+    else if entry.fileName.endsWith "Test.lean" then
+      let stem := (entry.fileName.dropSuffix ".lean").toString
+      modules := modules ++ [moduleName (parts ++ [stem])]
+  pure <| modules.mergeSort (fun a b => compare a b == .lt)
+
+private def findAndWriteDiscoveredSpecsFrom (baseModule : List String) (root outFile : System.FilePath) : IO (List String) := do
+  let modules ← collectTestModulesFrom root baseModule
+  if let some dir := outFile.parent then
+    IO.FS.createDirAll dir
+  IO.FS.writeFile outFile (discoveredSpecsSource modules)
+  pure modules
+
+script autotest do
+  let root : System.FilePath := __dir__
+  let modules ← findAndWriteDiscoveredSpecsFrom ["Spec"] (root / "Spec") (root / "Spec" / "DiscoveredSpecs.lean")
+  if modules != ["Spec.Nested.ExampleTest"] then
+    throw <| IO.userError s!"unexpected modules: {modules}"
+  return 0
+EOF
+
+cat >"$tmpdir/Spec.lean" <<'EOF'
+module
+EOF
+
+cat >"$tmpdir/Spec/Nested/ExampleTest.lean" <<'EOF'
+module
+
+namespace Spec.Nested.ExampleTest
+
+def marker : String := "found"
+
+end Spec.Nested.ExampleTest
+EOF
+
+cat >"$tmpdir/Spec/Nested/Helper.lean" <<'EOF'
+module
+
+def ignored : String := "not a test"
+EOF
+
+cat >"$tmpdir/Main.lean" <<'EOF'
+import Spec.DiscoveredSpecs
+
+def main : IO Unit := pure ()
+EOF
+
+cd "$tmpdir"
+lake script run autotest
+
+grep -q 'public import Spec.Nested.ExampleTest' "$tmpdir/Spec/DiscoveredSpecs.lean"
+
+lake build
+"$tmpdir/.lake/build/bin/smoke"

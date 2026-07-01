@@ -10,6 +10,6 @@ glob = "Spec.+"
 name = "SpecExtraFileTree"
 glob = "SpecExtraFileTree.+"
 
-[[require]]
-name = "Colorized"
-scope = "algebraic-dev"
+# [[lean_lib]]
+# name = "SpecAuto"
+# glob = "SpecAuto.+"
