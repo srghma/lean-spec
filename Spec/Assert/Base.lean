@@ -1,11 +1,9 @@
 module
 public import Init.System.IO
-public import Lean.Data.RBTree
+public import Std.Data.TreeSet
 public import Lean
-public import Lean.Data.RBMap
+public import Std.Data.TreeMap
 public import Std.Data.HashSet
-public import Lean.Data.RBTree
-public import Init.System.IO
 public import Lean.Elab.Term
 public import Lean.Parser.Term
 public import Init.Data.Repr

@@ -1,12 +1,10 @@
 module
-import Std.Internal.Async
+import Std.Async
 public import Std.Time.Time.Unit.Millisecond
 
 @[expose] public section
 
 namespace Spec
-
-open Std.Internal.IO.Async
 
 inductive MaybeTimedOut (α : Type)
   | timedOut
