@@ -38,16 +38,21 @@ def describe (focus : Bool := false) (timeout : Option Nat := none) (name : Stri
   let (_, children) := specs.run #[]
   modify fun s => s.push (SpecTree.group name { focus, timeout } children)
 
-/-- `it` for specs that take an input value from a hook. -/
-def itWith (focus : Bool := false) (timeout : Option Nat := none) (name : String)
-    (action : α → IO Unit) : SpecM α Unit :=
-  modify fun s => s.push (SpecTree.test name { focus, timeout } action)
+class ItAction (α : Type) (action : Type) where
+  add : NodeOpts → String → action → SpecM α Unit
 
-/-- `it` for the common case where the spec takes no input (`Unit`). -/
+instance : ItAction Unit (IO Unit) where
+  add opts name action := modify fun s => s.push (SpecTree.test name opts (fun _ => action))
+
+instance {α : Type} : ItAction α (α → IO Unit) where
+  add opts name action := modify fun s => s.push (SpecTree.test name opts action)
+
+/-- `it` accepts `IO Unit` or `α → IO Unit`. -/
 def it (focus : Bool := false) (timeout : Option Nat := none) (name : String)
-    (action : IO Unit) : SpecM Unit Unit :=
-  itWith (focus := focus) (timeout := timeout) name (fun _ => action)
+    {action : Type} [ItAction α action] (a : action) : SpecM α Unit :=
+  ItAction.add { focus, timeout } name a
 
+/-- `pending` creates a pending spec item. -/
 def pending (name : String) : SpecM α Unit :=
   modify fun s => s.push (SpecTree.pending name)
 
