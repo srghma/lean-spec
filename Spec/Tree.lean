@@ -33,8 +33,8 @@ abbrev Spec := SpecM Unit Unit
 
 /-! ## Building blocks: describe / it / pending -/
 
-def describe (focus : Bool := false) (timeout : Option Nat := none) (name : String)
-    (specs : SpecM α Unit) : SpecM α Unit := do
+def describe (name : String)
+    (specs : SpecM α Unit) (focus : Bool := false) (timeout : Option Nat := none) : SpecM α Unit := do
   let (_, children) := specs.run #[]
   modify fun s => s.push (SpecTree.group name { focus, timeout } children)
 
