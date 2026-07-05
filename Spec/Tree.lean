@@ -1,5 +1,6 @@
 module
 import Init.System.IO
+public import Std.Time.Time.Unit.Millisecond
 public import Spec.Assert
 
 @[expose] public section
@@ -10,7 +11,7 @@ namespace Spec
 
 structure NodeOpts where
   focus : Bool := false
-  timeout : Option Nat := none
+  timeoutMs? : Option Std.Time.Millisecond.Offset := none
   deriving Inhabited, Repr, BEq
 
 mutual
@@ -34,9 +35,9 @@ abbrev Spec := SpecM Unit Unit
 /-! ## Building blocks: describe / it / pending -/
 
 def describe (name : String)
-    (specs : SpecM α Unit) (focus : Bool := false) (timeout : Option Nat := none) : SpecM α Unit := do
+    (specs : SpecM α Unit) (focus : Bool := false) (timeoutMs? : Option Std.Time.Millisecond.Offset := none) : SpecM α Unit := do
   let (_, children) := specs.run #[]
-  modify fun s => s.push (SpecTree.group name { focus, timeout } children)
+  modify fun s => s.push (SpecTree.group name { focus, timeoutMs? } children)
 
 class ItAction (α : Type) (action : Type) where
   add : NodeOpts → String → action → SpecM α Unit
@@ -49,8 +50,8 @@ instance {α : Type} : ItAction α (α → IO Unit) where
 
 /-- `it` accepts `IO Unit` or `α → IO Unit`. -/
 def it (name : String)
-    {action : Type} [ItAction α action] (a : action) (focus : Bool := false) (timeout : Option Nat := none) : SpecM α Unit :=
-  ItAction.add { focus, timeout } name a
+    {action : Type} [ItAction α action] (a : action) (focus : Bool := false) (timeoutMs? : Option Std.Time.Millisecond.Offset := none) : SpecM α Unit :=
+  ItAction.add { focus, timeoutMs? } name a
 
 /-- `pending` creates a pending spec item. -/
 def pending (name : String) : SpecM α Unit :=
