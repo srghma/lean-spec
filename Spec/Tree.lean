@@ -48,8 +48,8 @@ instance {α : Type} : ItAction α (α → IO Unit) where
   add opts name action := modify fun s => s.push (SpecTree.test name opts action)
 
 /-- `it` accepts `IO Unit` or `α → IO Unit`. -/
-def it (focus : Bool := false) (timeout : Option Nat := none) (name : String)
-    {action : Type} [ItAction α action] (a : action) : SpecM α Unit :=
+def it (name : String)
+    {action : Type} [ItAction α action] (a : action) (focus : Bool := false) (timeout : Option Nat := none) : SpecM α Unit :=
   ItAction.add { focus, timeout } name a
 
 /-- `pending` creates a pending spec item. -/
