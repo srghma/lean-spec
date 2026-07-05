@@ -22,7 +22,8 @@ def runLeaf (cfg : Config) (l : Leaf Unit) : IO ItemResult := do
     let task ← IO.asTask (prio := .dedicated) do
       try action (); pure (Outcome.success)
       catch e => pure (Outcome.failure (toString e))
-    let outcome ← match cfg.timeoutMs with
+    let timeoutMs? := l.timeoutMs?.orElse (fun _ => cfg.timeoutMs)
+    let outcome ← match timeoutMs? with
       | none =>
         match (← IO.wait task) with
         | .ok o => pure o
@@ -100,7 +101,7 @@ def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) 
   let (_, trees) := spec.run #[]
   let globalHasOnly := trees.any SpecTree.hasOnly
   let leaves := trees.foldl (init := #[]) fun acc t =>
-    acc ++ flatten globalHasOnly false #[] t
+    acc ++ flatten globalHasOnly false cfg.timeoutMs #[] t
   let failedNames ← if cfg.onlyFailures then loadFailures else pure #[]
   let selected := leaves.filter (matchesFilters cfg failedNames)
   let useColor ← resolveColor cfg

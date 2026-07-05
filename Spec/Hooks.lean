@@ -13,8 +13,8 @@ over the tree, replacing the `α → IO Unit` actions.
 
 mutual
   partial def mapAction (f : (α → IO Unit) → (β → IO Unit)) : SpecTree α → SpecTree β
-    | .group n o c => .group n o (mapActionArr f c)
-    | .test n o a => .test n o (f a)
+    | .group n opts c => .group n opts (mapActionArr f c)
+    | .test n opts a => .test n opts (f a)
     | .pending n => .pending n
 
   partial def mapActionArr (f : (α → IO Unit) → (β → IO Unit)) (c : Array (SpecTree α)) :

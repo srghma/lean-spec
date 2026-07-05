@@ -21,7 +21,8 @@ structure Config where
   exampleMatches? : Option String := none
   failFast : Bool := false
   onlyFailures : Bool := false
-  /-- Per-test timeout in milliseconds; `none` means no timeout. -/
+  /-- Default timeout in milliseconds; `none` means no timeout. Per-test
+  overrides can replace this value. -/
   timeoutMs : Option Nat := some 30000
   /-- Requested reporter names; empty means caller default. -/
   reporterNames : List String := []

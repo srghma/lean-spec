@@ -43,23 +43,33 @@ abbrev ReporterBuilder := Bool → IO Reporter
 structure Leaf (α : Type) where
   path : Array String
   name : String
+  timeoutMs? : Option Nat
   kind : Sum (α → IO Unit) Unit  -- `inl action` = test, `inr ()` = pending
   selected : Bool
 
-partial def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (path : Array String)
+partial def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeout? : Option Nat)
+    (path : Array String)
     (t : SpecTree Unit) : Array (Leaf Unit) :=
   match t with
-  | .group name isOnly children =>
-    let currentOnly := ancestorOnly || isOnly
+  | .group name opts children =>
+    let currentOnly := ancestorOnly || opts.focus
+    let currentTimeout? :=
+      match opts.timeout with
+      | some ms => some ms
+      | none => inheritedTimeout?
     if globalHasOnly && !currentOnly && !t.hasOnly then #[]
     else children.foldl (init := #[]) fun acc c =>
-      acc ++ flatten globalHasOnly currentOnly (path.push name) c
-  | .test name isOnly action =>
-    let sel := !globalHasOnly || ancestorOnly || isOnly
-    #[{ path, name, kind := .inl action, selected := sel }]
+      acc ++ flatten globalHasOnly currentOnly currentTimeout? (path.push name) c
+  | .test name opts action =>
+    let sel := !globalHasOnly || ancestorOnly || opts.focus
+    let effectiveTimeout? :=
+      match opts.timeout with
+      | some ms => some ms
+      | none => inheritedTimeout?
+    #[{ path, name, timeoutMs? := effectiveTimeout?, kind := .inl action, selected := sel }]
   | .pending name =>
     let sel := !globalHasOnly || ancestorOnly
-    #[{ path, name, kind := .inr (), selected := sel }]
+    #[{ path, name, timeoutMs? := none, kind := .inr (), selected := sel }]
 
 /-- Full dotted name used for `--example` filtering. -/
 def Leaf.fullName (l : Leaf α) : String :=
