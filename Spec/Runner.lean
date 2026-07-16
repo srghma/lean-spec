@@ -93,21 +93,17 @@ def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) 
     IO.eprintln (printBuildError err)
     return true
   | .ok _ =>
-    match forestRev.toSpecTree with
-    | .error err =>
-      IO.eprintln (printBuildError err)
-      return true
-    | .ok tree =>
-      let globalHasOnly := tree.hasOnly
-      let leaves := flatten globalHasOnly false cfg.timeoutMs #[] tree
-      let state ← loadLastRunState useColor
-      let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
-      let selected := orderByTiming failedNames state.timings (leaves.filter (matchesFilters cfg failedNames))
-      let built ← reporters.mapM (fun mk => mk useColor)
-      let results ← runLeaves cfg built selected
-      saveLastRunState useColor state results
-      let anyFailed := results.any (isFailure ·.outcome)
-      return anyFailed
+    let tree := forestRev.toSpecTree
+    let globalHasOnly := tree.hasOnly
+    let leaves := flatten globalHasOnly false cfg.timeoutMs #[] tree
+    let state ← loadLastRunState useColor
+    let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
+    let selected := orderByTiming failedNames state.timings (leaves.filter (matchesFilters cfg failedNames))
+    let built ← reporters.mapM (fun mk => mk useColor)
+    let results ← runLeaves cfg built selected
+    saveLastRunState useColor state results
+    let anyFailed := results.any (isFailure ·.outcome)
+    return anyFailed
 
 def runSpec (args : List String) (reporters : List ReporterBuilder) (spec : Spec) : IO Bool := do
   let cfg := parseArgs args

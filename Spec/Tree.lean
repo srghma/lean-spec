@@ -1,7 +1,7 @@
 module
 import Init.System.IO
 public import Std.Time.Time.Unit.Millisecond
-public import Std.Data.TreeSet.Basic
+public import Std.Data.TreeSet.Lemmas
 public import Spec.Assert
 
 @[expose] public section
@@ -75,6 +75,42 @@ structure SpecForest (α : Type) where
 
 def SpecForest.empty : SpecForest α := ⟨[], True.intro⟩
 
+def RawSpecTree.NamesAreIn (tree : RawSpecTree α) (names : Std.TreeSet String) : Prop :=
+  match tree with
+  | .nil => True
+  | .cons name _ tail => name ∈ names ∧ tail.NamesAreIn names
+
+theorem RawSpecTree.nameIsNotIn_of_namesAreIn {name : String} {tree : RawSpecTree α}
+    {names : Std.TreeSet String} (namesAreIn : tree.NamesAreIn names) (nameIsNotIn : name ∉ names) :
+    NameIsNotInRawSpecTree name tree :=
+  match tree, namesAreIn with
+  | .nil, _ => .nil
+  | .cons head data tail, ⟨headIsIn, tailNamesAreIn⟩ =>
+      .cons head data tail (by
+        intro h
+        apply nameIsNotIn
+        simpa [h] using headIsIn)
+        (RawSpecTree.nameIsNotIn_of_namesAreIn tailNamesAreIn nameIsNotIn)
+
+theorem RawSpecTree.NamesAreIn.weaken {tree : RawSpecTree α} {names names' : Std.TreeSet String}
+    (namesAreIn : tree.NamesAreIn names) (subset : ∀ name, name ∈ names → name ∈ names') :
+    tree.NamesAreIn names' :=
+  match tree, namesAreIn with
+  | .nil, _ => trivial
+  | .cons name _ _, ⟨nameIsIn, tailNamesAreIn⟩ =>
+      ⟨subset name nameIsIn, RawSpecTree.NamesAreIn.weaken tailNamesAreIn subset⟩
+
+structure SpecBuilder (α : Type) where
+  toRawSpecTree : RawSpecTree α
+  names : Std.TreeSet String
+  namesAreIn : toRawSpecTree.NamesAreIn names
+  isWF : toRawSpecTree.WF
+
+def SpecBuilder.empty : SpecBuilder α := ⟨.nil, ∅, trivial, trivial⟩
+
+def SpecBuilder.toSpecTree (builder : SpecBuilder α) : SpecTree α :=
+  ⟨builder.toRawSpecTree, builder.isWF⟩
+
 inductive SpecMErrors where
   | duplicateNames (names : Std.TreeSet String)
   | userError (message : String)
@@ -82,8 +118,9 @@ inductive SpecMErrors where
 instance : CoeOut String SpecMErrors where
   coe := .userError
 
-/-- During construction the forest is stored in reverse order, so adding a node is `O(1)`. -/
-abbrev SpecM (α : Type) := ExceptT SpecMErrors (StateM (SpecForest α))
+/-- During construction the tree is stored in reverse order, with sibling names indexed for fast
+duplicate detection. -/
+abbrev SpecM (α : Type) := ExceptT SpecMErrors (StateM (SpecBuilder α))
 abbrev Spec := SpecM Unit Unit
 
 instance : MonadExceptOf String (SpecM α) where
@@ -117,6 +154,21 @@ def RawSpecTree.mapAction {α β : Type} (f : (α → IO Unit) → (β → IO Un
   | .cons name (.test opts action) tail => .cons name (.test opts (f action)) (tail.mapAction f)
   | .cons name .pending tail => .cons name .pending (tail.mapAction f)
 termination_by tree => sizeOf tree
+
+theorem RawSpecTree.NamesAreIn.mapAction {α β : Type} (f : (α → IO Unit) → (β → IO Unit))
+    {tree : RawSpecTree α} {names : Std.TreeSet String} :
+    tree.NamesAreIn names → (tree.mapAction f).NamesAreIn names :=
+  match tree with
+  | .nil => fun _ => by simp [RawSpecTree.mapAction, RawSpecTree.NamesAreIn]
+  | .cons _ (.group _ _) _ => fun ⟨nameIsIn, tailNamesAreIn⟩ =>
+      by simpa [RawSpecTree.mapAction, RawSpecTree.NamesAreIn] using
+        ⟨nameIsIn, RawSpecTree.NamesAreIn.mapAction f tailNamesAreIn⟩
+  | .cons _ (.test _ _) _ => fun ⟨nameIsIn, tailNamesAreIn⟩ =>
+      by simpa [RawSpecTree.mapAction, RawSpecTree.NamesAreIn] using
+        ⟨nameIsIn, RawSpecTree.NamesAreIn.mapAction f tailNamesAreIn⟩
+  | .cons _ .pending _ => fun ⟨nameIsIn, tailNamesAreIn⟩ =>
+      by simpa [RawSpecTree.mapAction, RawSpecTree.NamesAreIn] using
+        ⟨nameIsIn, RawSpecTree.NamesAreIn.mapAction f tailNamesAreIn⟩
 
 theorem NameIsUniquePerGroup.mapAction {α β : Type} (f : (α → IO Unit) → (β → IO Unit)) {name : String}
     {tree : RawSpecTree α} : NameIsNotInRawSpecTree name tree → NameIsNotInRawSpecTree name (tree.mapAction f)
@@ -152,6 +204,10 @@ termination_by sizeOf tree
 
 def SpecTree.mapAction (f : (α → IO Unit) → (β → IO Unit)) (tree : SpecTree α) : SpecTree β :=
   ⟨tree.toRawSpecTree.mapAction f, tree.isWF.mapAction f⟩
+
+def SpecBuilder.mapAction (f : (α → IO Unit) → (β → IO Unit)) (builder : SpecBuilder α) : SpecBuilder β :=
+  ⟨builder.toRawSpecTree.mapAction f, builder.names, builder.namesAreIn.mapAction f,
+    builder.isWF.mapAction f⟩
 
 theorem RawSpecForest.WF.mapAction {α β : Type} (f : (α → IO Unit) → (β → IO Unit))
     {forest : RawSpecForest α} (h : forest.WF) :
@@ -198,13 +254,50 @@ def SpecForest.merge (forest other : SpecForest α) : Except SpecMErrors (SpecFo
   let tree ← tree.merge other
   pure ⟨[tree.toRawSpecTree], ⟨tree.isWF, trivial⟩⟩
 
+def SpecBuilder.add (builder : SpecBuilder α) (name : String)
+    (data : SpecTreeData α (RawSpecTree α)) (dataWF : RawSpecTreeData.WF data) :
+    Except SpecMErrors (SpecBuilder α) :=
+  let pair := builder.names.containsThenInsert name
+  let duplicate := pair.1
+  let names := pair.2
+  if h : duplicate then
+    throw (.duplicateNames (Std.TreeSet.insert (∅ : Std.TreeSet String) name))
+  else
+    have namesEq : names = builder.names.insert name := by
+      simp [names, pair]
+    have containsFalse : builder.names.contains name = false := by
+      have duplicateFalse : duplicate = false := by simpa using h
+      calc
+        builder.names.contains name = duplicate := by
+          simp [duplicate, pair, Std.TreeSet.containsThenInsert_fst]
+        _ = false := duplicateFalse
+    have nameIsNotIn : name ∉ builder.names := by
+      simp [Membership.mem, containsFalse]
+    pure ⟨.cons name data builder.toRawSpecTree, names, by
+      constructor
+      · rw [namesEq]
+        exact Std.TreeSet.mem_insert_self
+      · rw [namesEq]
+        exact RawSpecTree.NamesAreIn.weaken builder.namesAreIn fun _ isIn =>
+          Std.TreeSet.mem_insert.mpr (.inr isIn),
+      ⟨RawSpecTree.nameIsNotIn_of_namesAreIn builder.namesAreIn nameIsNotIn,
+        dataWF, builder.isWF⟩⟩
+
+def SpecBuilder.mergeRaw (builder : SpecBuilder α) (other : RawSpecTree α)
+    (otherWF : other.WF) : Except SpecMErrors (SpecBuilder α) :=
+  match other, otherWF with
+  | .nil, _ => pure builder
+  | .cons name data tail, ⟨_, dataWF, tailWF⟩ => do
+    let builder ← builder.mergeRaw tail tailWF
+    builder.add name data dataWF
+
+def SpecBuilder.merge (builder other : SpecBuilder α) : Except SpecMErrors (SpecBuilder α) :=
+  builder.mergeRaw other.toRawSpecTree other.isWF
+
 def SpecM.add (name : String) (data : SpecTreeData α (RawSpecTree α))
     (dataWF : RawSpecTreeData.WF data) : SpecM α Unit := do
-  let forest ← get
-  let tree ← forest.toSpecTree
-  let tree ← tree.add name data dataWF
-  let forest : SpecForest α := ⟨[tree.toRawSpecTree], ⟨tree.isWF, trivial⟩⟩
-  set forest
+  let builder ← get
+  set (← builder.add name data dataWF)
 
 def RawSpecTree.focus : RawSpecTree α → RawSpecTree α
   | .nil => .nil
@@ -239,6 +332,20 @@ theorem RawSpecTree.WF.focus {tree : RawSpecTree α} (h : tree.WF) : tree.focus.
 def SpecTree.focus (tree : SpecTree α) : SpecTree α :=
   ⟨tree.toRawSpecTree.focus, tree.isWF.focus⟩
 
+theorem RawSpecTree.NamesAreIn.focus {tree : RawSpecTree α} {names : Std.TreeSet String}
+    (namesAreIn : tree.NamesAreIn names) : tree.focus.NamesAreIn names :=
+  match tree, namesAreIn with
+  | .nil, _ => trivial
+  | .cons _ (.group _ _) _, ⟨nameIsIn, tailNamesAreIn⟩ =>
+      ⟨nameIsIn, RawSpecTree.NamesAreIn.focus tailNamesAreIn⟩
+  | .cons _ (.test _ _) _, ⟨nameIsIn, tailNamesAreIn⟩ =>
+      ⟨nameIsIn, RawSpecTree.NamesAreIn.focus tailNamesAreIn⟩
+  | .cons _ .pending _, ⟨nameIsIn, tailNamesAreIn⟩ =>
+      ⟨nameIsIn, RawSpecTree.NamesAreIn.focus tailNamesAreIn⟩
+
+def SpecBuilder.focus (builder : SpecBuilder α) : SpecBuilder α :=
+  ⟨builder.toRawSpecTree.focus, builder.names, builder.namesAreIn.focus, builder.isWF.focus⟩
+
 /-! ## Building blocks: describe / it / pending -/
 
 def describe (name : String)
@@ -247,7 +354,7 @@ def describe (name : String)
   match result with
   | .ok _ => pure ()
   | .error err => throwThe SpecMErrors err
-  let children ← children.toSpecTree
+  let children := children.toSpecTree
   SpecM.add name (.group { focus, timeoutMs? } children.toRawSpecTree) children.isWF
 
 class ItAction (α : Type) (action : Type) where
@@ -273,9 +380,9 @@ def focus (specs : SpecM α Unit) : SpecM α Unit := do
   match result with
   | .ok _ => pure ()
   | .error err => throwThe SpecMErrors err
-  let children ← children.toSpecTree
-  let forest ← get
-  set (← forest.merge ⟨[children.focus.toRawSpecTree], ⟨children.focus.isWF, trivial⟩⟩)
+  let children := children.focus
+  let builder ← get
+  set (← builder.merge children)
 
 /-! ## `only` detection -/
 
