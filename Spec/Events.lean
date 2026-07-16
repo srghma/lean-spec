@@ -55,26 +55,32 @@ structure Leaf (α : Type) where
 partial def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeout? : Option Nat)
     (path : Array String)
     (t : SpecTree Unit) : Array (Leaf Unit) :=
-  match t with
-  | .group name opts children =>
-    let currentOnly := ancestorOnly || opts.focus
-    let currentTimeout? :=
-      match opts.timeoutMs? with
-      | some ms => some ms.toInt.toNat
-      | none => inheritedTimeout?
-    if globalHasOnly && !currentOnly && !t.hasOnly then #[]
-    else children.foldl (init := #[]) fun acc child =>
-      acc ++ flatten globalHasOnly currentOnly currentTimeout? (path.push name) child
-  | .test name opts action =>
-    let sel := !globalHasOnly || ancestorOnly || opts.focus
-    let effectiveTimeout? :=
-      match opts.timeoutMs? with
-      | some ms => some ms.toInt.toNat
-      | none => inheritedTimeout?
-    #[{ path, name, timeoutMs? := effectiveTimeout?, kind := .inl action, selected := sel }]
-  | .pending name =>
-    let sel := !globalHasOnly || ancestorOnly
-    #[{ path, name, timeoutMs? := none, kind := .inr (), selected := sel }]
+  go ancestorOnly inheritedTimeout? path t.toRawSpecTree
+where
+  go : Bool → Option Nat → Array String → RawSpecTree Unit → Array (Leaf Unit)
+    | _, _, _, .nil => #[]
+    | ancestorOnly, inheritedTimeout?, path, .cons name (.group opts children) tail =>
+      let tailLeaves := go ancestorOnly inheritedTimeout? path tail
+      let currentOnly := ancestorOnly || opts.focus
+      let currentTimeout? :=
+        match opts.timeoutMs? with
+        | some ms => some ms.toInt.toNat
+        | none => inheritedTimeout?
+      if globalHasOnly && !currentOnly && !children.hasOnly then tailLeaves
+      else
+        tailLeaves ++ go currentOnly currentTimeout? (path.push name) children
+    | ancestorOnly, inheritedTimeout?, path, .cons name (.test opts action) tail =>
+      let tailLeaves := go ancestorOnly inheritedTimeout? path tail
+      let sel := !globalHasOnly || ancestorOnly || opts.focus
+      let effectiveTimeout? :=
+        match opts.timeoutMs? with
+        | some ms => some ms.toInt.toNat
+        | none => inheritedTimeout?
+      tailLeaves ++ #[{ path, name, timeoutMs? := effectiveTimeout?, kind := .inl action, selected := sel }]
+    | ancestorOnly, inheritedTimeout?, path, .cons name .pending tail =>
+      let tailLeaves := go ancestorOnly inheritedTimeout? path tail
+      let sel := !globalHasOnly || ancestorOnly
+      tailLeaves ++ #[{ path, name, timeoutMs? := none, kind := .inr (), selected := sel }]
 
 /-- Full dotted name used for `--example` filtering. -/
 def Leaf.fullName (l : Leaf α) : String :=

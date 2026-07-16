@@ -87,21 +87,19 @@ def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) 
     | .duplicateNames names =>
       let message := s!"❌ Duplicate spec names in the same block: {String.intercalate ", " names.toList}"
       Reporter.Base.red useColor message
-  let (result, forestRev) := spec.run []
+  let (result, forestRev) := spec.run .empty
   match result with
   | .error err =>
     IO.eprintln (printBuildError err)
     return true
   | .ok _ =>
-    let forest := forestRev.reverse
-    match SpecForest.validate forest with
+    match forestRev.toSpecTree with
     | .error err =>
       IO.eprintln (printBuildError err)
       return true
-    | .ok _ =>
-      let globalHasOnly := forest.any SpecTree.hasOnly
-      let leaves := forest.foldl (init := #[]) fun leaves tree =>
-        leaves ++ flatten globalHasOnly false cfg.timeoutMs #[] tree
+    | .ok tree =>
+      let globalHasOnly := tree.hasOnly
+      let leaves := flatten globalHasOnly false cfg.timeoutMs #[] tree
       let state ← loadLastRunState useColor
       let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
       let selected := orderByTiming failedNames state.timings (leaves.filter (matchesFilters cfg failedNames))

@@ -15,42 +15,45 @@ over the tree, replacing the `α → IO Unit` actions.
 def each (before : IO Unit := pure ())
     (after : IO Unit := pure ())
     (specs : SpecM α Unit) : SpecM α Unit := do
-  let (result, children) := specs.run []
+  let (result, children) := specs.run .empty
   match result with
   | .ok _ => pure ()
   | .error err => throwThe SpecMErrors err
-  modify fun forest => children.foldr (fun tree forest =>
-    tree.mapAction (fun run a => do
+  let children := children.mapAction fun run a => do
       before
       try
         run a
       finally
-        after) :: forest) forest
+        after
+  let forest ← get
+  set (← forest.merge children)
 
 /-- Acquire a value for each item, run the item with it, and optionally release it afterward. -/
 def withValue (acquire : α → IO β)
     (release : β → IO Unit := fun _ => pure ())
     (specs : SpecM β Unit) : SpecM α Unit := do
-  let (result, children) := specs.run []
+  let (result, children) := specs.run .empty
   match result with
   | .ok _ => pure ()
   | .error err => throwThe SpecMErrors err
-  modify fun forest => children.foldr (fun tree forest =>
-    tree.mapAction (fun run a => do
+  let children := children.mapAction fun run a => do
       let b ← acquire a
       try
         run b
       finally
-        release b) :: forest) forest
+        release b
+  let forest ← get
+  set (← forest.merge children)
 
 /-- `aroundWith` wraps each item, mapping the incoming value. -/
 def aroundWith (f : (β → IO Unit) → (α → IO Unit)) (specs : SpecM β Unit) : SpecM α Unit := do
-  let (result, children) := specs.run []
+  let (result, children) := specs.run .empty
   match result with
   | .ok _ => pure ()
   | .error err => throwThe SpecMErrors err
-  modify fun forest => children.foldr (fun tree forest =>
-    tree.mapAction (fun run a => f run a) :: forest) forest
+  let children := children.mapAction fun run a => f run a
+  let forest ← get
+  set (← forest.merge children)
 
 /-- Run `action` before every spec item (no value passed in). -/
 def before_ (action : IO Unit) (specs : SpecM α Unit) : SpecM α Unit :=
