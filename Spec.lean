@@ -5,6 +5,7 @@ public import Spec.Reporter
 public import Spec.Speed
 public import Spec.Timeout
 public import Spec.Tree
+public import Spec.DuplicateNames
 public import Spec.Hooks
 public import Spec.Events
 public import Spec.CTestLikeState

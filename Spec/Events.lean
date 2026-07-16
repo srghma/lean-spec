@@ -52,9 +52,9 @@ structure Leaf (α : Type) where
   kind : Sum (α → IO Unit) Unit  -- `inl action` = test, `inr ()` = pending
   selected : Bool
 
-partial def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeout? : Option Nat)
-    (path : Array String)
-    (t : SpecTree Unit) : Array (Leaf Unit) :=
+partial def flattenInto (globalHasOnly : Bool) (ancestorOnly : Bool)
+    (inheritedTimeout? : Option Nat) (path : Array String) (t : SpecTree Unit)
+    (leaves : Array (Leaf Unit)) : Array (Leaf Unit) :=
   match t with
   | .group name opts children =>
     let currentOnly := ancestorOnly || opts.focus
@@ -62,19 +62,23 @@ partial def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeo
       match opts.timeoutMs? with
       | some ms => some ms.toInt.toNat
       | none => inheritedTimeout?
-    if globalHasOnly && !currentOnly && !t.hasOnly then #[]
-    else children.foldl (init := #[]) fun acc c =>
-      acc ++ flatten globalHasOnly currentOnly currentTimeout? (path.push name) c
+    if globalHasOnly && !currentOnly && !t.hasOnly then leaves
+    else children.foldl (init := leaves) fun leaves child =>
+      flattenInto globalHasOnly currentOnly currentTimeout? (path.push name) child leaves
   | .test name opts action =>
     let sel := !globalHasOnly || ancestorOnly || opts.focus
     let effectiveTimeout? :=
       match opts.timeoutMs? with
       | some ms => some ms.toInt.toNat
       | none => inheritedTimeout?
-    #[{ path, name, timeoutMs? := effectiveTimeout?, kind := .inl action, selected := sel }]
+    leaves.push { path, name, timeoutMs? := effectiveTimeout?, kind := .inl action, selected := sel }
   | .pending name =>
     let sel := !globalHasOnly || ancestorOnly
-    #[{ path, name, timeoutMs? := none, kind := .inr (), selected := sel }]
+    leaves.push { path, name, timeoutMs? := none, kind := .inr (), selected := sel }
+
+def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeout? : Option Nat)
+    (path : Array String) (t : SpecTree Unit) : Array (Leaf Unit) :=
+  flattenInto globalHasOnly ancestorOnly inheritedTimeout? path t #[]
 
 /-- Full dotted name used for `--example` filtering. -/
 def Leaf.fullName (l : Leaf α) : String :=

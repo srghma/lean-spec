@@ -4,6 +4,7 @@ public import Std.Sync.Mutex
 public import Spec.Config
 public import Spec.ArgsParser
 public import Spec.Events
+public import Spec.DuplicateNames
 public import Spec.CTestLikeState
 
 open IO
@@ -82,10 +83,12 @@ def runLeaves (cfg : Config) (reporters : List Reporter) (leaves : Array (Leaf U
 
 def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) : IO Bool := do
   let (_, trees) := spec.run #[]
-  let globalHasOnly := trees.any SpecTree.hasOnly
-  let leaves := trees.foldl (init := #[]) fun acc t =>
-    acc ++ flatten globalHasOnly false cfg.timeoutMs #[] t
   let useColor ← resolveColor cfg
+  if let some warning := SpecTree.duplicateNamesWarning trees then
+    IO.eprintln (Reporter.Base.yellow useColor warning)
+  let globalHasOnly := trees.any SpecTree.hasOnly
+  let leaves := trees.foldl (init := #[]) fun leaves tree =>
+    flattenInto globalHasOnly false cfg.timeoutMs #[] tree leaves
   let state ← loadLastRunState useColor
   let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
   let selected := orderByTiming failedNames state.timings (leaves.filter (matchesFilters cfg failedNames))
