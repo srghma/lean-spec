@@ -63,8 +63,8 @@ partial def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeo
       | some ms => some ms.toInt.toNat
       | none => inheritedTimeout?
     if globalHasOnly && !currentOnly && !t.hasOnly then #[]
-    else children.foldl (init := #[]) fun acc c =>
-      acc ++ flatten globalHasOnly currentOnly currentTimeout? (path.push name) c
+    else children.foldl (init := #[]) fun acc child =>
+      acc ++ flatten globalHasOnly currentOnly currentTimeout? (path.push name) child
   | .test name opts action =>
     let sel := !globalHasOnly || ancestorOnly || opts.focus
     let effectiveTimeout? :=

@@ -81,19 +81,35 @@ def runLeaves (cfg : Config) (reporters : List Reporter) (leaves : Array (Leaf U
   return results
 
 def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) : IO Bool := do
-  let (_, trees) := spec.run #[]
-  let globalHasOnly := trees.any SpecTree.hasOnly
-  let leaves := trees.foldl (init := #[]) fun acc t =>
-    acc ++ flatten globalHasOnly false cfg.timeoutMs #[] t
   let useColor ← resolveColor cfg
-  let state ← loadLastRunState useColor
-  let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
-  let selected := orderByTiming failedNames state.timings (leaves.filter (matchesFilters cfg failedNames))
-  let built ← reporters.mapM (fun mk => mk useColor)
-  let results ← runLeaves cfg built selected
-  saveLastRunState useColor state results
-  let anyFailed := results.any (isFailure ·.outcome)
-  return anyFailed
+  let printBuildError (err : SpecMErrors) := match err with
+    | .userError message => message
+    | .duplicateNames names =>
+      let message := s!"❌ Duplicate spec names in the same block: {String.intercalate ", " names.toList}"
+      Reporter.Base.red useColor message
+  let (result, forestRev) := spec.run []
+  match result with
+  | .error err =>
+    IO.eprintln (printBuildError err)
+    return true
+  | .ok _ =>
+    let forest := forestRev.reverse
+    match SpecForest.validate forest with
+    | .error err =>
+      IO.eprintln (printBuildError err)
+      return true
+    | .ok _ =>
+      let globalHasOnly := forest.any SpecTree.hasOnly
+      let leaves := forest.foldl (init := #[]) fun leaves tree =>
+        leaves ++ flatten globalHasOnly false cfg.timeoutMs #[] tree
+      let state ← loadLastRunState useColor
+      let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
+      let selected := orderByTiming failedNames state.timings (leaves.filter (matchesFilters cfg failedNames))
+      let built ← reporters.mapM (fun mk => mk useColor)
+      let results ← runLeaves cfg built selected
+      saveLastRunState useColor state results
+      let anyFailed := results.any (isFailure ·.outcome)
+      return anyFailed
 
 def runSpec (args : List String) (reporters : List ReporterBuilder) (spec : Spec) : IO Bool := do
   let cfg := parseArgs args

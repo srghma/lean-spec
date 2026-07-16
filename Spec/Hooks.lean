@@ -11,47 +11,46 @@ Hooks transform the action of every leaf inside the wrapped spec. We map
 over the tree, replacing the `α → IO Unit` actions.
 -/
 
-mutual
-  partial def mapAction (f : (α → IO Unit) → (β → IO Unit)) : SpecTree α → SpecTree β
-    | .group n opts c => .group n opts (mapActionArr f c)
-    | .test n opts a => .test n opts (f a)
-    | .pending n => .pending n
-
-  partial def mapActionArr (f : (α → IO Unit) → (β → IO Unit)) (c : Array (SpecTree α)) :
-      Array (SpecTree β) :=
-    c.map (mapAction f)
-end
-
 /-- Run `before` before every spec item and `after` even if the item throws. -/
 def each (before : IO Unit := pure ())
     (after : IO Unit := pure ())
     (specs : SpecM α Unit) : SpecM α Unit := do
-  let (_, children) := specs.run #[]
-  modify fun s =>
-    s ++ children.map (mapAction fun run a => do
+  let (result, children) := specs.run []
+  match result with
+  | .ok _ => pure ()
+  | .error err => throwThe SpecMErrors err
+  modify fun forest => children.foldr (fun tree forest =>
+    tree.mapAction (fun run a => do
       before
       try
         run a
       finally
-        after)
+        after) :: forest) forest
 
 /-- Acquire a value for each item, run the item with it, and optionally release it afterward. -/
 def withValue (acquire : α → IO β)
     (release : β → IO Unit := fun _ => pure ())
     (specs : SpecM β Unit) : SpecM α Unit := do
-  let (_, children) := specs.run #[]
-  modify fun s =>
-    s ++ children.map (mapAction fun run a => do
+  let (result, children) := specs.run []
+  match result with
+  | .ok _ => pure ()
+  | .error err => throwThe SpecMErrors err
+  modify fun forest => children.foldr (fun tree forest =>
+    tree.mapAction (fun run a => do
       let b ← acquire a
       try
         run b
       finally
-        release b)
+        release b) :: forest) forest
 
 /-- `aroundWith` wraps each item, mapping the incoming value. -/
 def aroundWith (f : (β → IO Unit) → (α → IO Unit)) (specs : SpecM β Unit) : SpecM α Unit := do
-  let (_, children) := specs.run #[]
-  modify fun s => s ++ children.map (mapAction fun run a => f run a)
+  let (result, children) := specs.run []
+  match result with
+  | .ok _ => pure ()
+  | .error err => throwThe SpecMErrors err
+  modify fun forest => children.foldr (fun tree forest =>
+    tree.mapAction (fun run a => f run a) :: forest) forest
 
 /-- Run `action` before every spec item (no value passed in). -/
 def before_ (action : IO Unit) (specs : SpecM α Unit) : SpecM α Unit :=
