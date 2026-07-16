@@ -13,8 +13,8 @@ structure ScheduledLeaf where
   timing? : Option Timing
 
 /-- CTest-style order: previous failures first, then descending historical cost. -/
-def orderByTiming (leaves : Array ScheduledLeaf) : Array (Leaf Unit) :=
-  (leaves.mergeSort fun a b =>
+def orderScheduledByTiming (leaves : Array ScheduledLeaf) : Array ScheduledLeaf :=
+  leaves.mergeSort fun a b =>
     if a.failed && !b.failed then
       true
     else if b.failed && !a.failed then
@@ -24,7 +24,10 @@ def orderByTiming (leaves : Array ScheduledLeaf) : Array (Leaf Unit) :=
       | some aTiming, some bTiming => aTiming.costMs > bTiming.costMs
       | some _, none => true
       | none, some _ => false
-      | none, none => false).map (·.leaf)
+      | none, none => false
+
+def orderByTiming (leaves : Array ScheduledLeaf) : Array (Leaf Unit) :=
+  (orderScheduledByTiming leaves).map (·.leaf)
 
 end Spec
 end

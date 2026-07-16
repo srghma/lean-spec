@@ -78,7 +78,7 @@ def teamcityReporter : ReporterBuilder := fun _ => do
           IO.println (testStarted title)
           IO.println (testFailed title err)
           IO.println (testFinished title)
-    , reportSummary := fun _ => do
+    , reportSummary := fun _ _ _ => do
         let prev ← lastPath.get
         for i in [0:prev.size] do
           let idx := prev.size - 1 - i

@@ -12,6 +12,7 @@ namespace Spec
 structure NodeOpts where
   focus : Bool := false
   timeoutMs? : Option Std.Time.Millisecond.Offset := none
+  parallel : Bool := true
   deriving Inhabited, Repr, BEq
 
 /-- A spec item carries an action that receives the value produced by the
@@ -33,9 +34,10 @@ abbrev Spec := SpecM Unit Unit
 /-! ## Building blocks: describe / it / pending -/
 
 def describe (name : String)
-    (specs : SpecM α Unit) (focus : Bool := false) (timeoutMs? : Option Std.Time.Millisecond.Offset := none) : SpecM α Unit := do
+    (specs : SpecM α Unit) (focus : Bool := false) (timeoutMs? : Option Std.Time.Millisecond.Offset := none)
+    (parallel : Bool := true) : SpecM α Unit := do
   let (_, children) := specs.run #[]
-  modify fun s => s.push (SpecTree.group name { focus, timeoutMs? } children)
+  modify fun s => s.push (SpecTree.group name { focus, timeoutMs?, parallel } children)
 
 class ItAction (α : Type) (action : Type) where
   add : NodeOpts → String → action → SpecM α Unit
@@ -48,8 +50,9 @@ instance {α : Type} : ItAction α (α → IO Unit) where
 
 /-- `it` accepts `IO Unit` or `α → IO Unit`. -/
 def it (name : String)
-    {action : Type} [ItAction α action] (a : action) (focus : Bool := false) (timeoutMs? : Option Std.Time.Millisecond.Offset := none) : SpecM α Unit :=
-  ItAction.add { focus, timeoutMs? } name a
+    {action : Type} [ItAction α action] (a : action) (focus : Bool := false)
+    (timeoutMs? : Option Std.Time.Millisecond.Offset := none) (parallel : Bool := true) : SpecM α Unit :=
+  ItAction.add { focus, timeoutMs?, parallel } name a
 
 /-- `pending` creates a pending spec item. -/
 def pending (name : String) : SpecM α Unit :=

@@ -9,7 +9,8 @@ namespace Spec
 def sortedTimings (timings : Timings) : List (String × Timing) :=
   timings.toList
 
-def saveLastRunState (useColor : Bool) (previous : LastRunState) (results : Array ItemResult) : IO Unit := do
+def saveLastRunState (useColor : Bool) (previous : LastRunState) (results : Array ItemResult)
+    (suiteDurationMs : Nat) : IO Unit := do
   let mut failed : Std.TreeSet String := ∅
   let mut timings := previous.timings
   let mut seenNames := Std.HashSet.emptyWithCapacity
@@ -34,8 +35,11 @@ def saveLastRunState (useColor : Bool) (previous : LastRunState) (results : Arra
   let timingLines := (sortedTimings timings).map
     fun (name, timing) => s!"{name} {timing.previousRuns} {timing.costMs}.000000"
   let failureLines := failed.toList
-  let lines := if timingLines.isEmpty && failureLines.isEmpty then []
-    else timingLines ++ ["---"] ++ failureLines
+  let suiteTiming : Timing := match previous.suiteTiming? with
+    | some old => { previousRuns := old.previousRuns + 1, costMs := (old.previousRuns * old.costMs + suiteDurationMs) / (old.previousRuns + 1) }
+    | none => { previousRuns := 1, costMs := suiteDurationMs }
+  let lines := timingLines ++ ["---"] ++ failureLines ++ ["---"] ++
+    [s!"total {suiteTiming.previousRuns} {suiteTiming.costMs}.000000"]
   let content := String.intercalate "\n" lines
   unless content.isEmpty do
     try

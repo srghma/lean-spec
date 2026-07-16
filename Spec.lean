@@ -13,6 +13,7 @@ public import Spec.StateFile.CommonUtils
 public import Spec.StateFile.ParserReader
 public import Spec.StateFile.PrinterWriter
 public import Spec.CTestLikeState
+public import Spec.ParallelQueue
 public import Spec.Runner
 public import Spec.SelectReporter
 public import Spec.RunSpec

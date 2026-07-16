@@ -17,6 +17,7 @@ abbrev Timings := Std.TreeMap String Timing
 structure LastRunState where
   failures : Std.TreeSet String
   timings : Timings
+  suiteTiming? : Option Timing := none
 
 def emptyLastRunState : LastRunState :=
   { failures := ∅, timings := ∅ }

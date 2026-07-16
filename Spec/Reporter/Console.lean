@@ -23,9 +23,9 @@ def consoleReporter : ReporterBuilder := fun useColor => do
         printHeaderIfNeeded res.path
         match res.outcome with
         | .success =>
-          IO.println ("  " ++ green useColor "✓ " ++ dim useColor res.name)
+          IO.println ("  " ++ green useColor "✓ " ++ dim useColor res.name ++ duration useColor res)
         | .failure err =>
-          IO.println ("  " ++ red useColor ("✗ " ++ res.name ++ ":"))
+          IO.println ("  " ++ red useColor ("✗ " ++ res.name) ++ duration useColor res ++ ":")
           IO.println ""
           IO.println ("  " ++ red useColor err)
         | .pending =>

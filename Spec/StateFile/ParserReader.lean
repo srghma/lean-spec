@@ -34,7 +34,7 @@ def loadLastRunState (useColor : Bool) : IO LastRunState := do
   let mut state := emptyLastRunState
   let mut failureCollisions := Std.HashSet.emptyWithCapacity
   let mut timingCollisions := Std.HashSet.emptyWithCapacity
-  let mut sawSeparator := false
+  let mut phase := 0
   let mut readAny := false
   let mut reachedEof := false
   while !reachedEof do
@@ -45,24 +45,28 @@ def loadLastRunState (useColor : Bool) : IO LastRunState := do
     readAny := true
     let line := withoutLineEnding rawLine
     if line == "---" then
-      if sawSeparator then invalidStateFile useColor file
-      sawSeparator := true
+      if phase == 2 then invalidStateFile useColor file
+      phase := phase + 1
     else unless line.isEmpty do
-      if sawSeparator then
+      if phase == 1 then
         if state.failures.contains line then
           failureCollisions := failureCollisions.insert line
         state := { state with failures := state.failures.insert line }
-      else
+      else if phase == 0 then
         match parseTimingLine line with
         | some (name, timing) =>
           if state.timings.contains name then
             timingCollisions := timingCollisions.insert name
           state := { state with timings := state.timings.insert name timing }
         | none => invalidStateFile useColor file
+      else
+        match parseTimingLine line with
+        | some ("total", timing) => state := { state with suiteTiming? := some timing }
+        | _ => invalidStateFile useColor file
   if !readAny then
     IO.eprintln (Reporter.Base.yellow useColor s!"⚠️ Test file {file} is present but empty; something seems to have gone wrong, but we will continue running tests.")
     return emptyLastRunState
-  unless sawSeparator do invalidStateFile useColor file
+  unless phase > 0 do invalidStateFile useColor file
   warnStateFileCollisions useColor file failureCollisions timingCollisions
   return state
 

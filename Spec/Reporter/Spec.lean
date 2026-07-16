@@ -27,11 +27,10 @@ def specReporter : ReporterBuilder := fun useColor => do
         let depth := res.path.size
         match res.outcome with
         | .success =>
-          let speed := if res.durationMs > 75 then dim useColor s!" ({res.durationMs}ms)" else ""
-          IO.println (indent depth ++ green useColor "✓ " ++ dim useColor res.name ++ speed)
+          IO.println (indent depth ++ green useColor "✓ " ++ dim useColor res.name ++ duration useColor res)
         | .failure _ =>
           let n ← numFailures.modifyGet fun n => (n + 1, n + 1)
-          IO.println (indent depth ++ red useColor s!"{n}) {res.name}")
+          IO.println (indent depth ++ red useColor s!"{n}) {res.name}" ++ duration useColor res)
         | .pending =>
           IO.println (indent depth ++ cyan useColor ("- " ++ res.name))
     , reportSummary := defaultSummary useColor }

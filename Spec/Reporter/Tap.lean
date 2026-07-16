@@ -29,7 +29,7 @@ def tapReporter : ReporterBuilder := fun _useColor => do
         | .failure err =>
           IO.println s!"not ok {i} {title}"
           IO.println (escMsg err)
-    , reportSummary := fun results => do
+    , reportSummary := fun results _ _ => do
         let s := summarize results
         IO.println s!"# tests {s.failed + s.passed + s.pending}"
         IO.println s!"# pass {s.passed + s.pending}"

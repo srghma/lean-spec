@@ -26,6 +26,6 @@ def dotReporter (cfg : DotReporterConfig := {}) : ReporterBuilder := fun useColo
         if cfg.width > 0 && n % cfg.width == 0 then
           IO.println ""
         (← IO.getStdout).flush
-    , reportSummary := fun _ => IO.println "" }
+    , reportSummary := fun _ _ _ => IO.println "" }
 
 end Spec.Reporter.Dot

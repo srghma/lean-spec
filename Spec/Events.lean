@@ -1,5 +1,6 @@
 module
 public import Spec.Config
+public import Spec.Speed
 public import Spec.Tree
 public import Std.Data.TreeSet.Basic
 
@@ -21,6 +22,11 @@ structure ItemResult where
   name : String
   outcome : Outcome
   durationMs : Nat
+  previousDurationMs? : Option Nat := none
+  speed? : Option Speed := none
+  queueIndex : Nat := 0
+  queueCount : Nat := 1
+  nonParallel : Bool := false
   deriving Inhabited
 
 def isFailure : Outcome → Bool
@@ -36,7 +42,7 @@ structure Reporter where
   /-- Called once per finished item, atomically. -/
   reportItem : ItemResult → IO Unit
   /-- Called once after all items finish. -/
-  reportSummary : Array ItemResult → IO Unit := fun _ => pure ()
+  reportSummary : Array ItemResult → Option Nat → Nat → IO Unit := fun _ _ _ => pure ()
 
 /-- Reporters that need state (e.g. "last printed suite", a counter) are built
 in `IO` so they can allocate refs. `Bool` selects ANSI color output. -/
@@ -49,6 +55,7 @@ structure Leaf (α : Type) where
   path : Array String
   name : String
   timeoutMs? : Option Nat
+  parallel : Bool
   kind : Sum (α → IO Unit) Unit  -- `inl action` = test, `inr ()` = pending
   selected : Bool
 
@@ -70,9 +77,15 @@ partial def SpecTree.cacheOnly : SpecTree α → SpecTreeWithCachedOnly α
   | .test name opts action => .test name opts action opts.focus
   | .pending name => .pending name
 
+mutual
 partial def flattenCachedOnlyInto (globalHasOnly : Bool) (ancestorOnly : Bool)
     (inheritedTimeout? : Option Nat) (path : Array String) (t : SpecTreeWithCachedOnly Unit)
     (leaves : Array (Leaf Unit)) : Array (Leaf Unit) :=
+  flattenCachedOnlyIntoWithParallel globalHasOnly ancestorOnly inheritedTimeout? true path t leaves
+
+partial def flattenCachedOnlyIntoWithParallel (globalHasOnly : Bool) (ancestorOnly : Bool)
+    (inheritedTimeout? : Option Nat) (inheritedParallel : Bool) (path : Array String)
+    (t : SpecTreeWithCachedOnly Unit) (leaves : Array (Leaf Unit)) : Array (Leaf Unit) :=
   match t with
   | .group name opts children hasOnly =>
     let currentOnly := ancestorOnly || opts.focus
@@ -82,7 +95,8 @@ partial def flattenCachedOnlyInto (globalHasOnly : Bool) (ancestorOnly : Bool)
       | none => inheritedTimeout?
     if globalHasOnly && !currentOnly && !hasOnly then leaves
     else children.foldl (init := leaves) fun leaves child =>
-      flattenCachedOnlyInto globalHasOnly currentOnly currentTimeout? (path.push name) child leaves
+      flattenCachedOnlyIntoWithParallel globalHasOnly currentOnly currentTimeout?
+        (inheritedParallel && opts.parallel) (path.push name) child leaves
   | .test name opts action _ =>
     let sel := !globalHasOnly || ancestorOnly || opts.focus
     let effectiveTimeout? :=
@@ -93,6 +107,7 @@ partial def flattenCachedOnlyInto (globalHasOnly : Bool) (ancestorOnly : Bool)
       path
       name
       timeoutMs? := effectiveTimeout?
+      parallel := inheritedParallel && opts.parallel
       kind := .inl action
       selected := sel }
   | .pending name =>
@@ -101,8 +116,10 @@ partial def flattenCachedOnlyInto (globalHasOnly : Bool) (ancestorOnly : Bool)
       path
       name
       timeoutMs? := none
+      parallel := inheritedParallel
       kind := .inr ()
       selected := sel }
+end
 
 def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeout? : Option Nat)
     (path : Array String) (t : SpecTree Unit) : Array (Leaf Unit) :=
