@@ -24,17 +24,26 @@ def parseTimingLine (line : String) : Option (String × Timing) :=
     | some previousRuns, some costMs => some (name, { previousRuns, costMs })
     | _, _ => none
 
+def withoutLineEnding (line : String) : String :=
+  let line := if line.back == '\n' then line.dropEnd 1 |>.copy else line
+  if line.back == '\r' then line.dropEnd 1 |>.copy else line
+
 def loadLastRunState (useColor : Bool) : IO LastRunState := do
   let file ← lastRunStateFile
-  let content ← try IO.FS.readFile file catch _ => return emptyLastRunState
-  if content.isEmpty then
-    IO.eprintln (Reporter.Base.yellow useColor s!"⚠️ Test file {file} is present but empty; something seems to have gone wrong, but we will continue running tests.")
-    return emptyLastRunState
+  let handle ← try IO.FS.Handle.mk file .read catch _ => return emptyLastRunState
   let mut state := emptyLastRunState
   let mut failureCollisions := Std.HashSet.emptyWithCapacity
   let mut timingCollisions := Std.HashSet.emptyWithCapacity
   let mut sawSeparator := false
-  for line in content.splitOn "\n" do
+  let mut readAny := false
+  let mut reachedEof := false
+  while !reachedEof do
+    let rawLine ← try handle.getLine catch _ => return emptyLastRunState
+    if rawLine.isEmpty then
+      reachedEof := true
+      continue
+    readAny := true
+    let line := withoutLineEnding rawLine
     if line == "---" then
       if sawSeparator then invalidStateFile useColor file
       sawSeparator := true
@@ -50,6 +59,9 @@ def loadLastRunState (useColor : Bool) : IO LastRunState := do
             timingCollisions := timingCollisions.insert name
           state := { state with timings := state.timings.insert name timing }
         | none => invalidStateFile useColor file
+  if !readAny then
+    IO.eprintln (Reporter.Base.yellow useColor s!"⚠️ Test file {file} is present but empty; something seems to have gone wrong, but we will continue running tests.")
+    return emptyLastRunState
   unless sawSeparator do invalidStateFile useColor file
   warnStateFileCollisions useColor file failureCollisions timingCollisions
   return state
