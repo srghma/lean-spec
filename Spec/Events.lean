@@ -1,7 +1,7 @@
 module
 public import Spec.Config
 public import Spec.Tree
-public import Std.Data.HashSet.Basic
+public import Std.Data.TreeSet.Basic
 
 @[expose] public section
 
@@ -111,7 +111,7 @@ def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeout? : Op
 def formatSpecName (path : Array String) (name : String) : String :=
   String.intercalate " » " (path.toList ++ [name])
 
-def matchesFilters (cfg : Config) (failedNames : Std.HashSet String) (fullName : String)
+def matchesFilters (cfg : Config) (failedNames : Std.TreeSet String) (fullName : String)
     (leaf : Leaf α) : Bool :=
   let exMatch := match cfg.example? with
     | some s => (fullName.find? s).isSome

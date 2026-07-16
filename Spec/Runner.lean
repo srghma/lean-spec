@@ -91,7 +91,7 @@ def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) 
   let leaves := trees.foldl (init := #[]) fun leaves tree =>
     flattenCachedOnlyInto globalHasOnly false cfg.timeoutMs #[] tree leaves
   let state ← loadLastRunState useColor
-  let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
+  let failedNames := if cfg.onlyFailures then state.failures else (∅ : Std.TreeSet String)
   let selected := orderByTiming <| leaves.filterMap fun leaf =>
     let fullName := formatSpecName leaf.path leaf.name
     if matchesFilters cfg failedNames fullName leaf then

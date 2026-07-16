@@ -7,10 +7,10 @@ public import Spec.StateFile.CommonUtils
 namespace Spec
 
 def sortedTimings (timings : Timings) : List (String × Timing) :=
-  timings.toList.mergeSort (fun a b => a.1 < b.1)
+  timings.toList
 
 def saveLastRunState (useColor : Bool) (previous : LastRunState) (results : Array ItemResult) : IO Unit := do
-  let mut failed := Std.HashSet.emptyWithCapacity
+  let mut failed : Std.TreeSet String := ∅
   let mut timings := previous.timings
   let mut seenNames := Std.HashSet.emptyWithCapacity
   for result in results do
@@ -33,7 +33,7 @@ def saveLastRunState (useColor : Bool) (previous : LastRunState) (results : Arra
         failed := failed.insert name
   let timingLines := (sortedTimings timings).map
     fun (name, timing) => s!"{name} {timing.previousRuns} {timing.costMs}.000000"
-  let failureLines := failed.toList.mergeSort (· < ·)
+  let failureLines := failed.toList
   let lines := if timingLines.isEmpty && failureLines.isEmpty then []
     else timingLines ++ ["---"] ++ failureLines
   let content := String.intercalate "\n" lines
