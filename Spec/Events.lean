@@ -48,7 +48,6 @@ abbrev ReporterBuilder := Bool → IO Reporter
 structure Leaf (α : Type) where
   path : Array String
   name : String
-  fullName : String
   timeoutMs? : Option Nat
   kind : Sum (α → IO Unit) Unit  -- `inl action` = test, `inr ()` = pending
   selected : Bool
@@ -93,7 +92,6 @@ partial def flattenCachedOnlyInto (globalHasOnly : Bool) (ancestorOnly : Bool)
     leaves.push {
       path
       name
-      fullName := String.intercalate " » " (path.toList ++ [name])
       timeoutMs? := effectiveTimeout?
       kind := .inl action
       selected := sel }
@@ -102,7 +100,6 @@ partial def flattenCachedOnlyInto (globalHasOnly : Bool) (ancestorOnly : Bool)
     leaves.push {
       path
       name
-      fullName := String.intercalate " » " (path.toList ++ [name])
       timeoutMs? := none
       kind := .inr ()
       selected := sel }
@@ -111,16 +108,19 @@ def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeout? : Op
     (path : Array String) (t : SpecTree Unit) : Array (Leaf Unit) :=
   flattenCachedOnlyInto globalHasOnly ancestorOnly inheritedTimeout? path t.cacheOnly #[]
 
-def matchesFilters (cfg : Config) (failedNames : Std.HashSet String) (l : Leaf α) : Bool :=
-  let full := l.fullName
+def formatSpecName (path : Array String) (name : String) : String :=
+  String.intercalate " » " (path.toList ++ [name])
+
+def matchesFilters (cfg : Config) (failedNames : Std.HashSet String) (fullName : String)
+    (leaf : Leaf α) : Bool :=
   let exMatch := match cfg.example? with
-    | some s => (full.splitOn s).length > 1
+    | some s => (fullName.find? s).isSome
     | none => true
   let eMatch := match cfg.exampleMatches? with
-    | some s => (full.splitOn s).length > 1
+    | some s => (fullName.find? s).isSome
     | none => true
-  let failMatch := !cfg.onlyFailures || failedNames.contains full
-  l.selected && exMatch && eMatch && failMatch
+  let failMatch := !cfg.onlyFailures || failedNames.contains fullName
+  leaf.selected && exMatch && eMatch && failMatch
 
 end Spec
 end

@@ -92,7 +92,11 @@ def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) 
     flattenCachedOnlyInto globalHasOnly false cfg.timeoutMs #[] tree leaves
   let state ← loadLastRunState useColor
   let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
-  let selected := orderByTiming failedNames state.timings (leaves.filter (matchesFilters cfg failedNames))
+  let selected := orderByTiming <| leaves.filterMap fun leaf =>
+    let fullName := formatSpecName leaf.path leaf.name
+    if matchesFilters cfg failedNames fullName leaf then
+      some { leaf, failed := failedNames.contains fullName, timing? := timingFor state.timings fullName }
+    else none
   let built ← reporters.mapM (fun mk => mk useColor)
   let results ← runLeaves cfg built selected
   saveLastRunState useColor state results
