@@ -14,15 +14,13 @@ structure NodeOpts where
   timeoutMs? : Option Std.Time.Millisecond.Offset := none
   deriving Inhabited, Repr, BEq
 
-mutual
-  /-- A spec item carries an action that receives the value produced by the
-  enclosing `before`/`around` hooks (`Unit` when there are none). -/
-  inductive SpecTree (α : Type) where
-    | group (name : String) (opts : NodeOpts) (children : Array (SpecTree α))
-    | test (name : String) (opts : NodeOpts) (action : α → IO Unit)
-    | pending (name : String)
-    deriving Nonempty
-end
+/-- A spec item carries an action that receives the value produced by the
+enclosing `before`/`around` hooks (`Unit` when there are none). -/
+inductive SpecTree (α : Type) where
+  | group (name : String) (opts : NodeOpts) (children : Array (SpecTree α))
+  | test (name : String) (opts : NodeOpts) (action : α → IO Unit)
+  | pending (name : String)
+  deriving Nonempty
 
 /-- The writer/state monad we accumulate spec items in.
 

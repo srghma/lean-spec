@@ -7,6 +7,7 @@ public import Spec.Timeout
 public import Spec.Tree
 public import Spec.Hooks
 public import Spec.Events
+public import Spec.CTestLikeState
 public import Spec.Runner
 public import Spec.SelectReporter
 public import Spec.RunSpec

@@ -1,6 +1,7 @@
 module
 public import Spec.Config
 public import Spec.Tree
+public import Std.Data.HashSet.Basic
 
 @[expose] public section
 
@@ -21,6 +22,10 @@ structure ItemResult where
   outcome : Outcome
   durationMs : Nat
   deriving Inhabited
+
+def isFailure : Outcome → Bool
+  | .failure _ => true
+  | _ => false
 
 /-- A reporter is fed each finished item plus a summary at the end.
 Per-item printing happens atomically (one `reportItem` call at a time), so
@@ -75,7 +80,7 @@ partial def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeo
 def Leaf.fullName (l : Leaf α) : String :=
   String.intercalate " » " (l.path.toList ++ [l.name])
 
-def matchesFilters (cfg : Config) (failedNames : Array String) (l : Leaf α) : Bool :=
+def matchesFilters (cfg : Config) (failedNames : Std.HashSet String) (l : Leaf α) : Bool :=
   let full := l.fullName
   let exMatch := match cfg.example? with
     | some s => (full.splitOn s).length > 1

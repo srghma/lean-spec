@@ -4,6 +4,7 @@ public import Std.Sync.Mutex
 public import Spec.Config
 public import Spec.ArgsParser
 public import Spec.Events
+public import Spec.CTestLikeState
 
 open IO
 
@@ -45,10 +46,6 @@ def runLeaf (cfg : Config) (l : Leaf Unit) : IO ItemResult := do
     let stop ← IO.monoMsNow
     return { path := l.path, name := l.name, outcome, durationMs := stop - start }
 
-def isFailure : Outcome → Bool
-  | .failure _ => true
-  | _ => false
-
 /-- Run a flattened, filtered list of leaves, dispatching to reporters.
 `reporters` are already built (state allocated). Per-item reporting is
 serialized through `lock` so parallel output is not interleaved. -/
@@ -83,31 +80,18 @@ def runLeaves (cfg : Config) (reporters : List Reporter) (leaves : Array (Leaf U
   for r in reporters do r.reportSummary results
   return results
 
-def saveFailures (results : Array ItemResult) : IO Unit := do
-  let failed := results.filterMap fun r =>
-    if isFailure r.outcome then some (String.intercalate " » " (r.path.toList ++ [r.name])) else none
-  unless failed.isEmpty do
-    let file ← failuresFile
-    IO.FS.writeFile file (String.intercalate "\n" failed.toList)
-
-def loadFailures : IO (Array String) := do
-  try
-    let file ← failuresFile
-    let content ← IO.FS.readFile file
-    return content.splitOn "\n" |>.filter (!·.isEmpty) |>.toArray
-  catch _ => return #[]
-
 def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) : IO Bool := do
   let (_, trees) := spec.run #[]
   let globalHasOnly := trees.any SpecTree.hasOnly
   let leaves := trees.foldl (init := #[]) fun acc t =>
     acc ++ flatten globalHasOnly false cfg.timeoutMs #[] t
-  let failedNames ← if cfg.onlyFailures then loadFailures else pure #[]
-  let selected := leaves.filter (matchesFilters cfg failedNames)
   let useColor ← resolveColor cfg
+  let state ← loadLastRunState useColor
+  let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
+  let selected := orderByTiming failedNames state.timings (leaves.filter (matchesFilters cfg failedNames))
   let built ← reporters.mapM (fun mk => mk useColor)
   let results ← runLeaves cfg built selected
-  saveFailures results
+  saveLastRunState useColor state results
   let anyFailed := results.any (isFailure ·.outcome)
   return anyFailed
 

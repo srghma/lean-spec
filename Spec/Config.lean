@@ -31,11 +31,6 @@ structure Config where
   parallel : Bool := true
   deriving Inhabited
 
-/-- File used to remember which tests failed last run (`--only-failures`). -/
-def failuresFile : IO System.FilePath := do
-  let base ← _root_.Spec.Assert.initialCwd.get
-  return base / ".spec-failures"
-
 def resolveColor (cfg : Config) : IO Bool := do
   match cfg.color with
   | .Always => pure true
