@@ -27,31 +27,32 @@ def each (before : IO Unit := pure ())
     (after : IO Unit := pure ())
     (specs : SpecM α Unit) : SpecM α Unit := do
   let (_, children) := specs.run #[]
-  modify fun s =>
-    s ++ children.map (mapAction fun run a => do
+  modify fun trees => children.foldl (init := trees) fun trees child =>
+    trees.push (mapAction (fun run a => do
       before
       try
         run a
       finally
-        after)
+        after) child)
 
 /-- Acquire a value for each item, run the item with it, and optionally release it afterward. -/
 def withValue (acquire : α → IO β)
     (release : β → IO Unit := fun _ => pure ())
     (specs : SpecM β Unit) : SpecM α Unit := do
   let (_, children) := specs.run #[]
-  modify fun s =>
-    s ++ children.map (mapAction fun run a => do
+  modify fun trees => children.foldl (init := trees) fun trees child =>
+    trees.push (mapAction (fun run a => do
       let b ← acquire a
       try
         run b
       finally
-        release b)
+        release b) child)
 
 /-- `aroundWith` wraps each item, mapping the incoming value. -/
 def aroundWith (f : (β → IO Unit) → (α → IO Unit)) (specs : SpecM β Unit) : SpecM α Unit := do
   let (_, children) := specs.run #[]
-  modify fun s => s ++ children.map (mapAction fun run a => f run a)
+  modify fun trees => children.foldl (init := trees) fun trees child =>
+    trees.push (mapAction (fun run a => f run a) child)
 
 /-- Run `action` before every spec item (no value passed in). -/
 def before_ (action : IO Unit) (specs : SpecM α Unit) : SpecM α Unit :=

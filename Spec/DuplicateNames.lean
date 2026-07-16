@@ -26,13 +26,14 @@ def DuplicateSpecTreeName.add (duplicate : DuplicateSpecTreeName) (kind : SpecTr
   | .it => { duplicate with itCount := duplicate.itCount + 1 }
   | .describe => { duplicate with describeCount := duplicate.describeCount + 1 }
 
-partial def SpecTree.findDuplicateNames (trees : Array (SpecTree α)) :
+def SpecTree.findDuplicateNames (trees : Array (SpecTree α)) :
     Array DuplicateSpecTreeNamesInGroup :=
-  go #[] trees #[]
-where
-  go (path : Array String) (trees : Array (SpecTree α))
-    (groups : Array DuplicateSpecTreeNamesInGroup) : Array DuplicateSpecTreeNamesInGroup :=
-    Id.run do
+  Id.run do
+    let mut work : List (Array String × Array (SpecTree α)) := [(#[], trees)]
+    let mut groups : Array DuplicateSpecTreeNamesInGroup := #[]
+    while !work.isEmpty do
+      let (path, trees) := work.head!
+      work := work.tail!
       let mut indices : Std.HashMap String Nat := Std.HashMap.emptyWithCapacity
       let mut names : Array DuplicateSpecTreeName := #[]
       let mut children : Array (String × Array (SpecTree α)) := #[]
@@ -53,8 +54,10 @@ where
             names := names.push { name, describeCount := 1 }
           children := children.push (name, nested)
       let duplicates := names.filter fun duplicate => duplicate.itCount + duplicate.describeCount > 1
-      let groups := if duplicates.isEmpty then groups else groups.push { path, names := duplicates }
-      return children.foldl (fun groups (name, nested) => go (path.push name) nested groups) groups
+      if !duplicates.isEmpty then
+        groups := groups.push { path, names := duplicates }
+      work := children.foldr (init := work) fun (name, nested) work => (path.push name, nested) :: work
+    return groups
 
 def DuplicateSpecTreeName.format (duplicate : DuplicateSpecTreeName) : String :=
   let count := duplicate.itCount + duplicate.describeCount

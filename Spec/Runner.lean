@@ -86,9 +86,10 @@ def runSpecWith (cfg : Config) (reporters : List ReporterBuilder) (spec : Spec) 
   let useColor ← resolveColor cfg
   if let some warning := SpecTree.duplicateNamesWarning trees then
     IO.eprintln (Reporter.Base.yellow useColor warning)
-  let globalHasOnly := trees.any SpecTree.hasOnly
+  let trees := trees.map SpecTree.cacheOnly
+  let globalHasOnly := trees.any SpecTreeWithCachedOnly.hasOnly
   let leaves := trees.foldl (init := #[]) fun leaves tree =>
-    flattenInto globalHasOnly false cfg.timeoutMs #[] tree leaves
+    flattenCachedOnlyInto globalHasOnly false cfg.timeoutMs #[] tree leaves
   let state ← loadLastRunState useColor
   let failedNames := if cfg.onlyFailures then state.failures else Std.HashSet.emptyWithCapacity
   let selected := orderByTiming failedNames state.timings (leaves.filter (matchesFilters cfg failedNames))

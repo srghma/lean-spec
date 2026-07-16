@@ -48,41 +48,68 @@ abbrev ReporterBuilder := Bool → IO Reporter
 structure Leaf (α : Type) where
   path : Array String
   name : String
+  fullName : String
   timeoutMs? : Option Nat
   kind : Sum (α → IO Unit) Unit  -- `inl action` = test, `inr ()` = pending
   selected : Bool
 
-partial def flattenInto (globalHasOnly : Bool) (ancestorOnly : Bool)
-    (inheritedTimeout? : Option Nat) (path : Array String) (t : SpecTree Unit)
+inductive SpecTreeWithCachedOnly (α : Type) where
+  | group (name : String) (opts : NodeOpts) (children : Array (SpecTreeWithCachedOnly α)) (hasOnly : Bool)
+  | test (name : String) (opts : NodeOpts) (action : α → IO Unit) (hasOnly : Bool)
+  | pending (name : String)
+  deriving Nonempty
+
+def SpecTreeWithCachedOnly.hasOnly : SpecTreeWithCachedOnly α → Bool
+  | .group _ _ _ hasOnly => hasOnly
+  | .test _ _ _ hasOnly => hasOnly
+  | .pending _ => false
+
+partial def SpecTree.cacheOnly : SpecTree α → SpecTreeWithCachedOnly α
+  | .group name opts children =>
+    let children := children.map cacheOnly
+    .group name opts children (opts.focus || children.any SpecTreeWithCachedOnly.hasOnly)
+  | .test name opts action => .test name opts action opts.focus
+  | .pending name => .pending name
+
+partial def flattenCachedOnlyInto (globalHasOnly : Bool) (ancestorOnly : Bool)
+    (inheritedTimeout? : Option Nat) (path : Array String) (t : SpecTreeWithCachedOnly Unit)
     (leaves : Array (Leaf Unit)) : Array (Leaf Unit) :=
   match t with
-  | .group name opts children =>
+  | .group name opts children hasOnly =>
     let currentOnly := ancestorOnly || opts.focus
     let currentTimeout? :=
       match opts.timeoutMs? with
       | some ms => some ms.toInt.toNat
       | none => inheritedTimeout?
-    if globalHasOnly && !currentOnly && !t.hasOnly then leaves
+    if globalHasOnly && !currentOnly && !hasOnly then leaves
     else children.foldl (init := leaves) fun leaves child =>
-      flattenInto globalHasOnly currentOnly currentTimeout? (path.push name) child leaves
-  | .test name opts action =>
+      flattenCachedOnlyInto globalHasOnly currentOnly currentTimeout? (path.push name) child leaves
+  | .test name opts action _ =>
     let sel := !globalHasOnly || ancestorOnly || opts.focus
     let effectiveTimeout? :=
       match opts.timeoutMs? with
       | some ms => some ms.toInt.toNat
       | none => inheritedTimeout?
-    leaves.push { path, name, timeoutMs? := effectiveTimeout?, kind := .inl action, selected := sel }
+    leaves.push {
+      path
+      name
+      fullName := String.intercalate " » " (path.toList ++ [name])
+      timeoutMs? := effectiveTimeout?
+      kind := .inl action
+      selected := sel }
   | .pending name =>
     let sel := !globalHasOnly || ancestorOnly
-    leaves.push { path, name, timeoutMs? := none, kind := .inr (), selected := sel }
+    leaves.push {
+      path
+      name
+      fullName := String.intercalate " » " (path.toList ++ [name])
+      timeoutMs? := none
+      kind := .inr ()
+      selected := sel }
 
 def flatten (globalHasOnly : Bool) (ancestorOnly : Bool) (inheritedTimeout? : Option Nat)
     (path : Array String) (t : SpecTree Unit) : Array (Leaf Unit) :=
-  flattenInto globalHasOnly ancestorOnly inheritedTimeout? path t #[]
-
-/-- Full dotted name used for `--example` filtering. -/
-def Leaf.fullName (l : Leaf α) : String :=
-  String.intercalate " » " (l.path.toList ++ [l.name])
+  flattenCachedOnlyInto globalHasOnly ancestorOnly inheritedTimeout? path t.cacheOnly #[]
 
 def matchesFilters (cfg : Config) (failedNames : Std.HashSet String) (l : Leaf α) : Bool :=
   let full := l.fullName

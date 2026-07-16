@@ -57,11 +57,11 @@ def pending (name : String) : SpecM α Unit :=
 
 def focus (specs : SpecM α Unit) : SpecM α Unit := do
   let (_, children) := specs.run #[]
-  let focusedChildren := children.map fun
-    | .group n opts c => .group n { opts with focus := true } c
-    | .test n opts a => .test n { opts with focus := true } a
-    | .pending n => .pending n
-  modify fun s => s ++ focusedChildren
+  modify fun trees => children.foldl (init := trees) fun trees child =>
+    match child with
+    | .group n opts c => trees.push (.group n { opts with focus := true } c)
+    | .test n opts a => trees.push (.test n { opts with focus := true } a)
+    | .pending n => trees.push (.pending n)
 
 /-! ## `only` detection -/
 
